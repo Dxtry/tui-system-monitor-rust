@@ -14,7 +14,7 @@ use crossterm::{
     },
 };
 
-use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, RefreshKind, System};
+use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, RefreshKind, System, ProcessRefreshKind, ProcessesToUpdate};
 
 fn bytes_to_gb(bytes: u64) -> f64 {
     bytes as f64 / 1024.0 / 1024.0 / 1024.0
@@ -42,6 +42,11 @@ fn main() -> io::Result<()> {
         system.refresh_cpu_all();
         system.refresh_memory();
         disks.refresh(true);
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::everything(),
+        );
 
         let cpu_usage = system.global_cpu_usage();
         let cpu_name = system.cpus()[0].brand();
@@ -97,6 +102,32 @@ fn main() -> io::Result<()> {
             };
 
             writeln!(stdout, "{} {:.1}% ({:.2} / {:.2} GB)", name, disk_percent, used_space_gb, total_space_gb)?;
+        }
+        writeln!(stdout)?;
+
+        writeln!(stdout, "PROCESSES:")?;
+        writeln!(stdout, "PID      CPU%      RAM(MB)      NAME")?;
+
+        let mut processes: Vec<_> = system.processes().iter().collect();
+        processes.sort_by(|a, b|{
+            let mem_a = a.1.memory();
+            let mem_b = b.1.memory();
+            mem_b.cmp(&mem_a)
+        });
+
+        for (pid, process) in processes.into_iter().take(20) {
+            let cpu = process.cpu_usage();
+            let memory_mb = process.memory() as f64 / 1024.0 / 1024.0;
+            let name = process.name().to_string_lossy();
+
+            writeln!(
+                stdout,
+                "{:<8} {:<9.1} {:<12.1} {}",
+                pid,
+                cpu,
+                memory_mb,
+                name
+            )?;
         }
         writeln!(stdout)?;
         writeln!(stdout, "Нажми Ctrl+C для выхода")?;
