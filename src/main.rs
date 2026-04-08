@@ -1,57 +1,50 @@
 use std::{
-    io::{self, Write},
-    thread,
+    io::{self, stdout},
     time::Duration,
 };
 
 use crossterm::{
+    event::{self, Event, KeyCode},
     execute,
-    cursor::MoveTo,
-    terminal::{
-        disable_raw_mode, enable_raw_mode,
-        Clear, ClearType,
-        EnterAlternateScreen, LeaveAlternateScreen,
-    },
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 
-use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, RefreshKind, System, ProcessRefreshKind, ProcessesToUpdate};
+use ratatui::{
+    prelude::*,
+    widgets::{Block, Borders, Paragraph},
+};
 
-fn bytes_to_gb(bytes: u64) -> f64 {
+use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, RefreshKind, System};
+
+fn bytes_to_gb(bytes: u64) -> f64{
     bytes as f64 / 1024.0 / 1024.0 / 1024.0
 }
+
 fn main() -> io::Result<()> {
-    let mut stdout = io::stdout();
-    //Создаём один System и обновляем его дальше
     let mut system = System::new_with_specifics(
         RefreshKind::nothing().with_cpu(CpuRefreshKind::everything()).with_memory(MemoryRefreshKind::everything()),
     );
 
     let mut disks = Disks::new_with_refreshed_list();
 
-    //Первый refresh нужен, чтобы CPU потом считался корректно
     system.refresh_cpu_all();
     system.refresh_memory();
 
     enable_raw_mode()?;
-    execute!(stdout, EnterAlternateScreen)?;
+    let mut out = stdout();
+    execute!(out, EnterAlternateScreen)?;
+
+    let backend = CrosstermBackend::new(out);
+    let mut terminal = Terminal::new(backend)?;
 
     loop {
-        thread::sleep(Duration::from_secs(1));
-
-        //Второй и последующие refresh дают реальные значения
         system.refresh_cpu_all();
         system.refresh_memory();
         disks.refresh(true);
-        system.refresh_processes_specifics(
-            ProcessesToUpdate::All,
-            true,
-            ProcessRefreshKind::everything(),
-        );
 
+        let cpu_name = system.cpus()[0].brand().to_string();
         let cpu_usage = system.global_cpu_usage();
-        let cpu_name = system.cpus()[0].brand();
         let cpus = system.cpus();
-
 
         let total_memory = system.total_memory();
         let used_memory = system.used_memory();
@@ -63,30 +56,29 @@ fn main() -> io::Result<()> {
         let free_memory_gb = bytes_to_gb(free_memory);
         let available_memory_gb = bytes_to_gb(available_memory);
 
-        let ram_percent = (system.used_memory() as f64 / system.total_memory() as f64) * 100.0;
+        let ram_percent = (used_memory as f64 / total_memory as f64) * 100.0;
 
-        execute!(stdout, Clear(ClearType::All), MoveTo(0, 0))?;
+        let mut cpu_text = format!(
+            "Модель: {}\nОбщая загрузка: {:.1}%\n\nПо ядрам:\n",
+            cpu_name, cpu_usage
+        );
 
-        writeln!(stdout, "=== SYSTEM MONITOR ===")?;
-        writeln!(stdout, "CPU: {}", cpu_name)?;
-        writeln!(stdout, "Общая загрузка: {:.1}%", cpu_usage)?;
-        writeln!(stdout)?;
-
-        writeln!(stdout, "По ядрам:")?;
         for (i, cpu) in cpus.iter().enumerate() {
-            writeln!(stdout, "CPU {}: {:.1}%", i, cpu.cpu_usage())?;
+            cpu_text.push_str(&format!("CPU {}: {:.1}%\n", i, cpu.cpu_usage()));
         }
 
-        writeln!(stdout)?;
-        writeln!(stdout, "RAM: {:.1}%", ram_percent)?;
-        writeln!(stdout, "Total:     {:.2} GB", total_memory_gb)?;
-        writeln!(stdout, "Used:      {:.2} GB", used_memory_gb)?;
-        writeln!(stdout, "Free:      {:.2} GB", free_memory_gb)?;
-        writeln!(stdout, "Available: {:.2} GB", available_memory_gb)?;
-        writeln!(stdout)?;
+        let ram_text = format!(
+            "Использование: {:.1}%\nTotal: {:.2} GB\nUsed: {:.2} GB\nFree: {:.2} GB\nAvailable: {:.2} GB",
+            ram_percent,
+            total_memory_gb,
+            used_memory_gb,
+            free_memory_gb,
+            available_memory_gb
+        );
 
-        writeln!(stdout, "DISKS:")?;
-        for disk in disks.list(){
+        let mut disks_text = String::new();
+
+        for disk in disks.list() {
             let name = disk.mount_point().to_string_lossy().replace("\\", "");
             let total_space = disk.total_space();
             let available_space = disk.available_space();
@@ -101,44 +93,61 @@ fn main() -> io::Result<()> {
                 0.0
             };
 
-            writeln!(stdout, "{} {:.1}% ({:.2} / {:.2} GB)", name, disk_percent, used_space_gb, total_space_gb)?;
+            disks_text.push_str(&format!(
+                "{} {:.1}% ({:.2} / {:.2} GB)\n",
+                name, disk_percent, used_space_gb, total_space_gb
+            ));
         }
-        writeln!(stdout)?;
 
-        writeln!(stdout, "PROCESSES:")?;
-        writeln!(stdout, "PID      CPU%      RAM(MB)      NAME")?;
+        terminal.draw(|frame| {
+            let area = frame.area();
 
-        let mut processes: Vec<_> = system.processes().iter().collect();
-        processes.sort_by(|a, b|{
-            let mem_a = a.1.memory();
-            let mem_b = b.1.memory();
-            mem_b.cmp(&mem_a)
-        });
+            let cpu_height = 6 + cpus.len() as u16;
+            let middle_height = 8_u16.max(3 + disks.list().len() as u16);
 
-        for (pid, process) in processes.into_iter().take(20) {
-            let cpu = process.cpu_usage();
-            let memory_mb = process.memory() as f64 / 1024.0 / 1024.0;
-            let name = process.name().to_string_lossy();
+            let vertical = Layout::default()
+                .direction(Direction::Vertical)
+                .margin(1)
+                .constraints([
+                    Constraint::Length(cpu_height),
+                    Constraint::Length(middle_height),
+                    Constraint::Min(0),
+                ])
+                .split(area);
 
-            writeln!(
-                stdout,
-                "{:<8} {:<9.1} {:<12.1} {}",
-                pid,
-                cpu,
-                memory_mb,
-                name
-            )?;
+            let middle = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(50),
+                    Constraint::Percentage(50),
+                ])
+                .split(vertical[1]);
+
+            let cpu_widget = Paragraph::new(cpu_text.clone())
+                .block(Block::default().title(" CPU ").borders(Borders::ALL));
+
+            let ram_widget = Paragraph::new(ram_text.clone())
+                .block(Block::default().title(" RAM").borders(Borders::ALL));
+
+            let disks_widget = Paragraph::new(disks_text.clone())
+                .block(Block::default().title(" DISKS").borders(Borders::ALL));
+
+            frame.render_widget(cpu_widget, vertical[0]);
+            frame.render_widget(ram_widget, middle[0]);
+            frame.render_widget(disks_widget, middle[1]);
+        })?;
+
+
+        if event::poll(Duration::from_millis(200))? {
+            if let Event::Key(key) = event::read()? {
+                if key.code == KeyCode::Char('q') {
+                    break;
+                }
+            }
         }
-        writeln!(stdout)?;
-        writeln!(stdout, "Нажми Ctrl+C для выхода")?;
-
-        stdout.flush()?;
     }
 
-    #[allow(unreachable_code)]
-    {
-        execute!(stdout, LeaveAlternateScreen)?;
-        disable_raw_mode()?;
-        Ok(())
-    }
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    Ok(())
 }

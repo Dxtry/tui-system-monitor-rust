@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 crossterm = "0.29.0"
 sysinfo = "0.38.4"
+ratatui = "0.30.0"
