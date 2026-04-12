@@ -110,9 +110,13 @@ fn main() -> io::Result<()> {
             i += 2;
         }
 
+
+        let ram_bar = draw_bar(ram_percent, 30);
+
         let ram_text = format!(
-            "Использование: {:.1}%\nTotal: {:.2} GB\nUsed: {:.2} GB\nFree: {:.2} GB\nAvailable: {:.2} GB",
+            "Использование: {:.1}%\n[{}]\n\nTotal:     {:.2} GB   Used:      {:.2} GB\nFree:      {:.2} GB    Available: {:.2} GB",
             ram_percent,
+            ram_bar,
             total_memory_gb,
             used_memory_gb,
             free_memory_gb,
@@ -136,9 +140,16 @@ fn main() -> io::Result<()> {
                 0.0
             };
 
+            let clean_name = name.trim_end_matches(':');
+            let disk_bar = draw_bar(disk_percent, 20);
+
             disks_text.push_str(&format!(
-                "{} {:.1}% ({:.2} / {:.2} GB)\n",
-                name, disk_percent, used_space_gb, total_space_gb
+                "{}: {:.1}%\n[{}]    ({:.2} / {:.2} GB)\n\n",
+                clean_name,
+                disk_percent,
+                disk_bar,
+                used_space_gb,
+                total_space_gb
             ));
         }
 
