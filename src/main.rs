@@ -33,6 +33,14 @@ fn truncate_text(text: &str, max_len: usize) -> String {
     }
 }
 
+fn draw_bar(percent: f64, width: usize) -> String {
+    let percent = percent.clamp(0.0, 100.0);
+    let filled = ((percent / 100.0) * width as f64) as usize;
+    let empty = width.saturating_sub(filled);
+
+    format!("{}{}", "█".repeat(filled), " ".repeat(empty))
+}
+
 fn main() -> io::Result<()> {
     let mut system = System::new_with_specifics(
         RefreshKind::nothing().with_cpu(CpuRefreshKind::everything()).with_memory(MemoryRefreshKind::everything()),
@@ -78,13 +86,28 @@ fn main() -> io::Result<()> {
 
         let ram_percent = (used_memory as f64 / total_memory as f64) * 100.0;
 
+        let bar = draw_bar(cpu_usage as f64, 30);
+
         let mut cpu_text = format!(
-            "Модель: {}\nОбщая загрузка: {:.1}%\n\nПо ядрам:\n",
-            cpu_name, cpu_usage
+            "Модель: {}\nОбщая загрузка: {:.1}%\n[{}]\n\nПо ядрам:\n",
+            cpu_name, cpu_usage, bar
         );
 
-        for (i, cpu) in cpus.iter().enumerate() {
-            cpu_text.push_str(&format!("CPU {}: {:.1}%\n", i, cpu.cpu_usage()));
+        let mut i = 0;
+        while i < cpus.len() {
+            let left = &cpus[i];
+            let left_text = format!("CPU {}: {:>5.1}%", i, left.cpu_usage());
+
+            let right_text = if i + 1 < cpus.len() {
+                let right = &cpus[i + 1];
+                format!("CPU {}: {:>5.1}%", i + 1, right.cpu_usage())
+            } else {
+                String::new()
+            };
+
+            cpu_text.push_str(&format!("{:<20} {}\n", left_text, right_text));
+
+            i += 2;
         }
 
         let ram_text = format!(
