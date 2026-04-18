@@ -11,7 +11,7 @@ use crossterm::{
 
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph, Cell, Row, Table},
 };
 
 use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System, Networks};
@@ -177,18 +177,22 @@ fn main() -> io::Result<()> {
         let mut processes: Vec<_> = system.processes().iter().collect();
         processes.sort_by(|a, b| b.1.memory().cmp(&a.1.memory()));
 
-        let mut processes_text = String::from("PID      CPU%     RAM(MB)    NAME\n");
+        let process_rows: Vec<Row> = processes
+            .into_iter()
+            .take(10)
+            .map(|(pid, process)| {
+                let cpu = format!("{:.1}", process.cpu_usage());
+                let memory_mb = format!("{:.1}", process.memory() as f64 / 1024.0 / 1024.0);
+                let name = truncate_text(&process.name().to_string_lossy(), 24);
 
-        for (pid, process) in processes.into_iter().take(10) {
-            let cpu = process.cpu_usage();
-            let memory_mb = process.memory() as f64 / 1024.0 / 1024.0;
-            let name = truncate_text(&process.name().to_string_lossy(), 22);
-
-            processes_text.push_str(&format!(
-                "{:<8} {:>6.1} {:>11.1}    {}\n",
-                pid, cpu, memory_mb, name
-            ));
-        }
+                Row::new(vec![
+                    Cell::from(pid.to_string()),
+                    Cell::from(cpu),
+                    Cell::from(memory_mb),
+                    Cell::from(name),
+                ])
+            })
+            .collect();
 
         terminal.draw(|frame| {
             let area = frame.area();
@@ -236,8 +240,24 @@ fn main() -> io::Result<()> {
             let network_widget = Paragraph::new(network_text.clone())
                 .block(Block::default().title(" NETWORK ").borders(Borders::ALL));
 
-            let processes_widget = Paragraph::new(processes_text.clone())
-                .block(Block::default().title(" PROCESSES (top 10 by RAM) ").borders(Borders::ALL));
+            let processes_widget = Table::new(
+                process_rows,
+                [
+                    Constraint::Length(8),
+                    Constraint::Length(8),
+                    Constraint::Length(10),
+                    Constraint::Min(10),
+                ],
+            )
+                .header(
+                    Row::new(vec!["PID", "CPU%", "RAM(MB)", "NAME"])
+                )
+                .column_spacing(1)
+                .block(
+                    Block::default()
+                        .title(" PROCESSES (top 10 by RAM) ")
+                        .borders(Borders::ALL),
+                );
 
 
             frame.render_widget(cpu_widget, vertical[0]);
