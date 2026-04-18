@@ -16,6 +16,11 @@ use ratatui::{
 
 use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System, Networks};
 
+use nvml_wrapper::{
+    enum_wrappers::device::TemperatureSensor,
+    Nvml,
+};
+
 fn bytes_to_gb(bytes: u64) -> f64{
     bytes as f64 / 1024.0 / 1024.0 / 1024.0
 }
@@ -48,6 +53,8 @@ fn main() -> io::Result<()> {
 
     let mut disks = Disks::new_with_refreshed_list();
     let mut networks = Networks::new_with_refreshed_list();
+
+    let nvml = Nvml::init().ok();
 
     system.refresh_cpu_all();
     system.refresh_memory();
@@ -109,6 +116,47 @@ fn main() -> io::Result<()> {
 
             i += 2;
         }
+
+        let gpu_text = if let Some(nvml) = &nvml {
+            match nvml.device_by_index(0) {
+                Ok(device) => {
+                    let name = device
+                        .name()
+                        .unwrap_or_else(|_| "Unknown GPU".to_string());
+
+                    let utilization = device.utilization_rates().ok();
+                    let memory = device.memory_info().ok();
+                    let temperature = device.temperature(TemperatureSensor::Gpu).ok();
+
+                    let gpu_percent = utilization.map(|u| u.gpu as f64).unwrap_or(0.0);
+                    let gpu_bar = draw_bar(gpu_percent, 30);
+
+                    let memory_text = if let Some(mem) = memory {
+                        let used_mb = bytes_to_mb(mem.used);
+                        let total_mb = bytes_to_mb(mem.total);
+                        format!("Память GPU: {:.1} / {:.1} MB", used_mb, total_mb)
+                    } else {
+                        "Память GPU: Недоступно".to_string()
+                    };
+
+                    let temperature_text = if let Some(temp) = temperature {
+                        format!("Температура: {}°C", temp)
+                    } else {
+                        "Температура: Недоступно".to_string()
+                    };
+
+                    format!(
+                        "Модель: {}\nЗагрузка GPU: {:.1}%\n[{}]\n\n{}\n{}",
+                        name, gpu_percent, gpu_bar, memory_text, temperature_text
+                    )
+                }
+                Err(_) => {
+                    "NO COMPATIBLE DEVICE FOUND".to_string()
+                }
+            }
+        } else {
+            "NO COMPATIBLE DEVICE FOUND".to_string()
+        };
 
 
         let ram_bar = draw_bar(ram_percent, 30);
@@ -198,6 +246,7 @@ fn main() -> io::Result<()> {
             let area = frame.area();
 
             let cpu_height = 6 + cpus.len() as u16;
+            let gpu_height = 8;
             let middle_height = 8_u16.max(3 + disks.list().len() as u16);
             let bottom_height = 14;
 
@@ -206,6 +255,7 @@ fn main() -> io::Result<()> {
                 .margin(1)
                 .constraints([
                     Constraint::Length(cpu_height),
+                    Constraint::Length(gpu_height),
                     Constraint::Length(middle_height),
                     Constraint::Length(bottom_height),
                     Constraint::Min(0),
@@ -218,7 +268,7 @@ fn main() -> io::Result<()> {
                     Constraint::Percentage(50),
                     Constraint::Percentage(50),
                 ])
-                .split(vertical[1]);
+                .split(vertical[2]);
 
             let bottom = Layout::default()
                 .direction(Direction::Horizontal)
@@ -226,10 +276,13 @@ fn main() -> io::Result<()> {
                     Constraint::Percentage(35),
                     Constraint::Percentage(65),
                 ])
-                .split(vertical[2]);
+                .split(vertical[3]);
 
             let cpu_widget = Paragraph::new(cpu_text.clone())
                 .block(Block::default().title(" CPU ").borders(Borders::ALL));
+
+            let gpu_widget = Paragraph::new(gpu_text.clone())
+                .block(Block::default().title(" GPU ").borders(Borders::ALL));
 
             let ram_widget = Paragraph::new(ram_text.clone())
                 .block(Block::default().title(" RAM").borders(Borders::ALL));
@@ -261,6 +314,7 @@ fn main() -> io::Result<()> {
 
 
             frame.render_widget(cpu_widget, vertical[0]);
+            frame.render_widget(gpu_widget, vertical[1]);
             frame.render_widget(ram_widget, middle[0]);
             frame.render_widget(disks_widget, middle[1]);
             frame.render_widget(network_widget, bottom[0]);
