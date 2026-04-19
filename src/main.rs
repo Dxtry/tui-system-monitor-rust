@@ -11,7 +11,7 @@ use crossterm::{
 
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Paragraph, Cell, Row, Table},
+    widgets::{Block, Borders, Paragraph, Cell, Row, Table, Sparkline},
 };
 
 use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System, Networks};
@@ -46,6 +46,40 @@ fn draw_bar(percent: f64, width: usize) -> String {
     format!("{}{}", "█".repeat(filled), " ".repeat(empty))
 }
 
+struct App{
+    cpu_history: Vec<u64>,
+    gpu_history: Vec<u64>,
+    max_points: usize,
+}
+
+impl App {
+    fn new(max_points: usize) -> Self {
+        Self {
+            cpu_history: Vec::new(),
+            gpu_history: Vec::new(),
+            max_points,
+        }
+    }
+
+    fn push_cpu(&mut self, value: f64) {
+        let clamped = value.clamp(0.0, 100.0) as u64;
+        self.cpu_history.push(clamped);
+
+        if self.cpu_history.len() > self.max_points {
+            self.cpu_history.remove(0);
+        }
+    }
+
+    fn push_gpu(&mut self, value: f64) {
+        let clamped = value.clamp(0.0, 100.0) as u64;
+        self.gpu_history.push(clamped);
+
+        if self.gpu_history.len() > self.max_points {
+            self.gpu_history.remove(0);
+        }
+    }
+}
+
 fn main() -> io::Result<()> {
     let mut system = System::new_with_specifics(
         RefreshKind::nothing().with_cpu(CpuRefreshKind::everything()).with_memory(MemoryRefreshKind::everything()),
@@ -55,6 +89,7 @@ fn main() -> io::Result<()> {
     let mut networks = Networks::new_with_refreshed_list();
 
     let nvml = Nvml::init().ok();
+    let mut app = App::new(120);
 
     system.refresh_cpu_all();
     system.refresh_memory();
@@ -74,7 +109,7 @@ fn main() -> io::Result<()> {
         system.refresh_processes_specifics(
             ProcessesToUpdate::All,
             true,
-            ProcessRefreshKind::everything()
+            ProcessRefreshKind::everything(),
         );
 
         let cpu_name = system.cpus()[0].brand().to_string();
@@ -92,77 +127,70 @@ fn main() -> io::Result<()> {
         let available_memory_gb = bytes_to_gb(available_memory);
 
         let ram_percent = (used_memory as f64 / total_memory as f64) * 100.0;
-
-        let bar = draw_bar(cpu_usage as f64, 30);
+        let ram_bar = draw_bar(ram_percent, 20);
 
         let mut cpu_text = format!(
-            "Модель: {}\nОбщая загрузка: {:.1}%\n[{}]\n\nПо ядрам:\n",
-            cpu_name, cpu_usage, bar
+            "Модель: {}\nЗагрузка: {:>5.1}%\n\nПо ядрам:\n",
+            cpu_name, cpu_usage
         );
 
         let mut i = 0;
         while i < cpus.len() {
             let left = &cpus[i];
-            let left_text = format!("CPU {}: {:>5.1}%", i, left.cpu_usage());
+            let left_text = format!("CPU {:<2}: {:>5.1}%", i, left.cpu_usage());
 
             let right_text = if i + 1 < cpus.len() {
                 let right = &cpus[i + 1];
-                format!("CPU {}: {:>5.1}%", i + 1, right.cpu_usage())
+                format!("CPU {:<2}: {:>5.1}%", i + 1, right.cpu_usage())
             } else {
                 String::new()
             };
 
             cpu_text.push_str(&format!("{:<20} {}\n", left_text, right_text));
-
             i += 2;
         }
 
-        let gpu_text = if let Some(nvml) = &nvml {
-            match nvml.device_by_index(0) {
-                Ok(device) => {
-                    let name = device
-                        .name()
-                        .unwrap_or_else(|_| "Unknown GPU".to_string());
+        let mut gpu_usage_value = 0.0;
+        let mut gpu_name = "No compatible device found".to_string();
+        let mut gpu_memory_text = "Память GPU: Недоступно".to_string();
+        let mut gpu_temp_text = "Температура: Недоступно".to_string();
 
-                    let utilization = device.utilization_rates().ok();
-                    let memory = device.memory_info().ok();
-                    let temperature = device.temperature(TemperatureSensor::Gpu).ok();
+        if let Some(nvml) = &nvml {
+            if let Ok(device) = nvml.device_by_index(0) {
+                gpu_name = device
+                    .name()
+                    .unwrap_or_else(|_| "Unknown GPU".to_string());
 
-                    let gpu_percent = utilization.map(|u| u.gpu as f64).unwrap_or(0.0);
-                    let gpu_bar = draw_bar(gpu_percent, 30);
-
-                    let memory_text = if let Some(mem) = memory {
-                        let used_mb = bytes_to_mb(mem.used);
-                        let total_mb = bytes_to_mb(mem.total);
-                        format!("Память GPU: {:.1} / {:.1} MB", used_mb, total_mb)
-                    } else {
-                        "Память GPU: Недоступно".to_string()
-                    };
-
-                    let temperature_text = if let Some(temp) = temperature {
-                        format!("Температура: {}°C", temp)
-                    } else {
-                        "Температура: Недоступно".to_string()
-                    };
-
-                    format!(
-                        "Модель: {}\nЗагрузка GPU: {:.1}%\n[{}]\n\n{}\n{}",
-                        name, gpu_percent, gpu_bar, memory_text, temperature_text
-                    )
+                if let Ok(util) = device.utilization_rates() {
+                    gpu_usage_value = util.gpu as f64;
                 }
-                Err(_) => {
-                    "NO COMPATIBLE DEVICE FOUND".to_string()
+
+                if let Ok(mem) = device.memory_info() {
+                    let used_mb = bytes_to_mb(mem.used);
+                    let total_mb = bytes_to_mb(mem.total);
+                    gpu_memory_text = format!("Память GPU: {:.1} / {:.1} MB", used_mb, total_mb);
+                }
+
+                if let Ok(temp) = device.temperature(TemperatureSensor::Gpu) {
+                    gpu_temp_text = format!("Температура: {}°C", temp);
                 }
             }
-        } else {
+        }
+
+        app.push_cpu(cpu_usage as f64);
+        app.push_gpu(gpu_usage_value);
+
+        let gpu_text = if gpu_name == "No compatible device found".to_string() {
             "NO COMPATIBLE DEVICE FOUND".to_string()
+        } else {
+            format!(
+                "Модель: {}\nЗагрузка GPU: {:>5.1}%\n{}\n{}",
+                gpu_name, gpu_usage_value, gpu_memory_text, gpu_temp_text
+            )
         };
 
-
-        let ram_bar = draw_bar(ram_percent, 30);
-
         let ram_text = format!(
-            "Использование: {:.1}%\n[{}]\n\nTotal:     {:.2} GB   Used:      {:.2} GB\nFree:      {:.2} GB    Available: {:.2} GB",
+            "Использование: {:.1}%\n[{}]\n\nTotal:     {:.2} GB\nUsed:      {:.2} GB\nFree:      {:.2} GB\nAvailable: {:.2} GB",
             ram_percent,
             ram_bar,
             total_memory_gb,
@@ -189,10 +217,10 @@ fn main() -> io::Result<()> {
             };
 
             let clean_name = name.trim_end_matches(':');
-            let disk_bar = draw_bar(disk_percent, 20);
+            let disk_bar = draw_bar(disk_percent, 14);
 
             disks_text.push_str(&format!(
-                "{}: {:.1}%\n[{}]    ({:.2} / {:.2} GB)\n\n",
+                "{}: {:.1}%\n[{}] ({:.2} / {:.2} GB)\n\n",
                 clean_name,
                 disk_percent,
                 disk_bar,
@@ -202,7 +230,7 @@ fn main() -> io::Result<()> {
         }
 
         let mut network_text = String::new();
-        for(interface_name, network) in &networks{
+        for (interface_name, network) in &networks {
             let rx_mb = bytes_to_mb(network.received());
             let tx_mb = bytes_to_mb(network.transmitted());
             let total_rx_mb = bytes_to_mb(network.total_received());
@@ -227,11 +255,11 @@ fn main() -> io::Result<()> {
 
         let process_rows: Vec<Row> = processes
             .into_iter()
-            .take(10)
+            .take(12)
             .map(|(pid, process)| {
                 let cpu = format!("{:.1}", process.cpu_usage());
                 let memory_mb = format!("{:.1}", process.memory() as f64 / 1024.0 / 1024.0);
-                let name = truncate_text(&process.name().to_string_lossy(), 24);
+                let name = truncate_text(&process.name().to_string_lossy(), 26);
 
                 Row::new(vec![
                     Cell::from(pid.to_string()),
@@ -245,10 +273,8 @@ fn main() -> io::Result<()> {
         terminal.draw(|frame| {
             let area = frame.area();
 
-            let cpu_height = 6 + cpus.len() as u16;
-            let gpu_height = 8;
-            let middle_height = 8_u16.max(3 + disks.list().len() as u16);
-            let bottom_height = 14;
+            let cpu_height = 9;
+            let gpu_height = 7;
 
             let vertical = Layout::default()
                 .direction(Direction::Vertical)
@@ -256,41 +282,77 @@ fn main() -> io::Result<()> {
                 .constraints([
                     Constraint::Length(cpu_height),
                     Constraint::Length(gpu_height),
-                    Constraint::Length(middle_height),
-                    Constraint::Length(bottom_height),
-                    Constraint::Min(0),
+                    Constraint::Min(10),
                 ])
                 .split(area);
 
-            let middle = Layout::default()
+            let cpu_block = Block::default().title(" CPU ").borders(Borders::ALL);
+            let gpu_block = Block::default().title(" GPU ").borders(Borders::ALL);
+
+            let cpu_inner = cpu_block.inner(vertical[0]);
+            let gpu_inner = gpu_block.inner(vertical[1]);
+
+            frame.render_widget(cpu_block, vertical[0]);
+            frame.render_widget(gpu_block, vertical[1]);
+
+            let cpu_split = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
-                    Constraint::Percentage(50),
-                    Constraint::Percentage(50),
+                    Constraint::Percentage(55),
+                    Constraint::Percentage(45),
                 ])
-                .split(vertical[2]);
+                .split(cpu_inner);
+
+            let gpu_split = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(55),
+                    Constraint::Percentage(45),
+                ])
+                .split(gpu_inner);
 
             let bottom = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
-                    Constraint::Percentage(35),
-                    Constraint::Percentage(65),
+                    Constraint::Percentage(42),
+                    Constraint::Percentage(58),
                 ])
-                .split(vertical[3]);
+                .split(vertical[2]);
 
-            let cpu_widget = Paragraph::new(cpu_text.clone())
-                .block(Block::default().title(" CPU ").borders(Borders::ALL));
+            let left_column = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(8),
+                    Constraint::Min(6),
+                ])
+                .split(bottom[0]);
 
-            let gpu_widget = Paragraph::new(gpu_text.clone())
-                .block(Block::default().title(" GPU ").borders(Borders::ALL));
+            let left_top = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(50),
+                    Constraint::Percentage(50),
+                ])
+                .split(left_column[0]);
 
-            let ram_widget = Paragraph::new(ram_text.clone())
-                .block(Block::default().title(" RAM").borders(Borders::ALL));
+            let cpu_chart = Sparkline::default()
+                .data(&app.cpu_history)
+                .max(100);
 
-            let disks_widget = Paragraph::new(disks_text.clone())
-                .block(Block::default().title(" DISKS").borders(Borders::ALL));
+            let gpu_chart = Sparkline::default()
+                .data(&app.gpu_history)
+                .max(100);
 
-            let network_widget = Paragraph::new(network_text.clone())
+            let cpu_info = Paragraph::new(cpu_text);
+            let gpu_info = Paragraph::new(gpu_text);
+
+            let ram_widget = Paragraph::new(ram_text)
+                .block(Block::default().title(" RAM ").borders(Borders::ALL));
+
+            let disks_widget = Paragraph::new(disks_text)
+                .block(Block::default().title(" DISKS ").borders(Borders::ALL));
+
+            let network_widget = Paragraph::new(network_text)
                 .block(Block::default().title(" NETWORK ").borders(Borders::ALL));
 
             let processes_widget = Table::new(
@@ -302,25 +364,26 @@ fn main() -> io::Result<()> {
                     Constraint::Min(10),
                 ],
             )
-                .header(
-                    Row::new(vec!["PID", "CPU%", "RAM(MB)", "NAME"])
-                )
+                .header(Row::new(vec!["PID", "CPU%", "RAM(MB)", "NAME"]))
                 .column_spacing(1)
                 .block(
                     Block::default()
-                        .title(" PROCESSES (top 10 by RAM) ")
+                        .title(" PROCESSES (top by RAM) ")
                         .borders(Borders::ALL),
                 );
 
+            frame.render_widget(cpu_chart, cpu_split[0]);
+            frame.render_widget(cpu_info, cpu_split[1]);
 
-            frame.render_widget(cpu_widget, vertical[0]);
-            frame.render_widget(gpu_widget, vertical[1]);
-            frame.render_widget(ram_widget, middle[0]);
-            frame.render_widget(disks_widget, middle[1]);
-            frame.render_widget(network_widget, bottom[0]);
+            frame.render_widget(gpu_chart, gpu_split[0]);
+            frame.render_widget(gpu_info, gpu_split[1]);
+
+            frame.render_widget(ram_widget, left_top[0]);
+            frame.render_widget(disks_widget, left_top[1]);
+            frame.render_widget(network_widget, left_column[1]);
+
             frame.render_widget(processes_widget, bottom[1]);
         })?;
-
 
         if event::poll(Duration::from_millis(200))? {
             if let Event::Key(key) = event::read()? {
