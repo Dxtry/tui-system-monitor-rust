@@ -40,9 +40,13 @@ fn truncate_text(text: &str, max_len: usize) -> String {
 
 fn draw_bar(percent: f64, width: usize) -> String {
     let percent = percent.clamp(0.0, 100.0);
-    let filled = ((percent / 100.0) * width as f64) as usize;
-    let empty = width.saturating_sub(filled);
+    let mut filled = ((percent / 100.0) * width as f64).round() as usize;
 
+    if percent > 0.0 && filled == 0 {
+        filled = 1;
+    }
+
+    let empty = width.saturating_sub(filled);
     format!("{}{}", "█".repeat(filled), " ".repeat(empty))
 }
 
@@ -129,9 +133,10 @@ fn main() -> io::Result<()> {
         let ram_percent = (used_memory as f64 / total_memory as f64) * 100.0;
         let ram_bar = draw_bar(ram_percent, 20);
 
+        let cpu_bar = draw_bar(cpu_usage as f64, 20);
         let mut cpu_text = format!(
-            "Модель: {}\nЗагрузка: {:>5.1}%\n\nПо ядрам:\n",
-            cpu_name, cpu_usage
+            "Модель: {}\nЗагрузка: {:>5.1}% [{}]\n\nПо ядрам:\n",
+            cpu_name, cpu_usage, cpu_bar
         );
 
         let mut i = 0;
@@ -180,12 +185,14 @@ fn main() -> io::Result<()> {
         app.push_cpu(cpu_usage as f64);
         app.push_gpu(gpu_usage_value);
 
-        let gpu_text = if gpu_name == "No compatible device found".to_string() {
+        let gpu_bar = draw_bar(gpu_usage_value, 20);
+
+        let gpu_text = if gpu_name == "No compatible device found" {
             "NO COMPATIBLE DEVICE FOUND".to_string()
         } else {
             format!(
-                "Модель: {}\nЗагрузка GPU: {:>5.1}%\n{}\n{}",
-                gpu_name, gpu_usage_value, gpu_memory_text, gpu_temp_text
+                "Модель: {}\nЗагрузка GPU: {:>5.1}% [{}]\n{}\n{}",
+                gpu_name, gpu_usage_value, gpu_bar, gpu_memory_text, gpu_temp_text
             )
         };
 
@@ -255,7 +262,7 @@ fn main() -> io::Result<()> {
 
         let process_rows: Vec<Row> = processes
             .into_iter()
-            .take(12)
+            .take(20)
             .map(|(pid, process)| {
                 let cpu = format!("{:.1}", process.cpu_usage());
                 let memory_mb = format!("{:.1}", process.memory() as f64 / 1024.0 / 1024.0);
@@ -298,16 +305,18 @@ fn main() -> io::Result<()> {
             let cpu_split = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
-                    Constraint::Percentage(55),
-                    Constraint::Percentage(45),
+                    Constraint::Percentage(52),
+                    Constraint::Length(10),
+                    Constraint::Percentage(48),
                 ])
                 .split(cpu_inner);
 
             let gpu_split = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
-                    Constraint::Percentage(55),
-                    Constraint::Percentage(45),
+                    Constraint::Percentage(52),
+                    Constraint::Length(10),
+                    Constraint::Percentage(48),
                 ])
                 .split(gpu_inner);
 
@@ -358,14 +367,14 @@ fn main() -> io::Result<()> {
             let processes_widget = Table::new(
                 process_rows,
                 [
+                    Constraint::Length(9),
                     Constraint::Length(8),
-                    Constraint::Length(8),
-                    Constraint::Length(10),
-                    Constraint::Min(10),
+                    Constraint::Length(11),
+                    Constraint::Min(16),
                 ],
             )
                 .header(Row::new(vec!["PID", "CPU%", "RAM(MB)", "NAME"]))
-                .column_spacing(1)
+                .column_spacing(3)
                 .block(
                     Block::default()
                         .title(" PROCESSES (top by RAM) ")
@@ -373,10 +382,11 @@ fn main() -> io::Result<()> {
                 );
 
             frame.render_widget(cpu_chart, cpu_split[0]);
-            frame.render_widget(cpu_info, cpu_split[1]);
+            frame.render_widget(cpu_info, cpu_split[2]);
 
             frame.render_widget(gpu_chart, gpu_split[0]);
-            frame.render_widget(gpu_info, gpu_split[1]);
+            frame.render_widget(gpu_info, gpu_split[2]);
+
 
             frame.render_widget(ram_widget, left_top[0]);
             frame.render_widget(disks_widget, left_top[1]);
@@ -384,7 +394,6 @@ fn main() -> io::Result<()> {
 
             frame.render_widget(processes_widget, bottom[1]);
         })?;
-
         if event::poll(Duration::from_millis(200))? {
             if let Event::Key(key) = event::read()? {
                 if key.code == KeyCode::Char('q') {
