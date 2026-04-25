@@ -47,7 +47,7 @@ fn draw_bar(percent: f64, width: usize) -> String {
     }
 
     let empty = width.saturating_sub(filled);
-    format!("{}{}", "█".repeat(filled), " ".repeat(empty))
+    format!("{}{}", "◼".repeat(filled), "◻".repeat(empty))
 }
 
 struct App{
@@ -133,26 +133,42 @@ fn main() -> io::Result<()> {
         let ram_percent = (used_memory as f64 / total_memory as f64) * 100.0;
         let ram_bar = draw_bar(ram_percent, 20);
 
-        let cpu_bar = draw_bar(cpu_usage as f64, 20);
+        let cpu_bar = draw_bar(cpu_usage as f64, 30);
         let mut cpu_text = format!(
-            "Модель: {}\nЗагрузка: {:>5.1}% [{}]\n\nПо ядрам:\n",
-            cpu_name, cpu_usage, cpu_bar
+            "CPU {} {:>5.1}%\n\n",
+            cpu_bar, cpu_usage
         );
 
-        let mut i = 0;
-        while i < cpus.len() {
-            let left = &cpus[i];
-            let left_text = format!("CPU {:<2}: {:>5.1}%", i, left.cpu_usage());
+        let rows = 3;
 
-            let right_text = if i + 1 < cpus.len() {
-                let right = &cpus[i + 1];
-                format!("CPU {:<2}: {:>5.1}%", i + 1, right.cpu_usage())
-            } else {
-                String::new()
-            };
+        // сколько будет колонок
+        let cols = (cpus.len() + rows - 1) / rows;
 
-            cpu_text.push_str(&format!("{:<20} {}\n", left_text, right_text));
-            i += 2;
+        for r in 0..rows {
+            let mut line = String::new();
+
+            for c in 0..cols {
+                let index = c * rows + r;
+
+                if index < cpus.len() {
+                    let cpu = &cpus[index];
+
+                    let core_text = format!(
+                        "C{:<1} {:>5.1}% --°C",
+                        index,
+                        cpu.cpu_usage()
+                    );
+
+                    line.push_str(&core_text);
+
+                    if c + 1 < cols {
+                        line.push_str(" | "); // отступ между колонками
+                    }
+                }
+            }
+
+            cpu_text.push_str(&line);
+            cpu_text.push('\n');
         }
 
         let mut gpu_usage_value = 0.0;
@@ -305,9 +321,9 @@ fn main() -> io::Result<()> {
             let cpu_split = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
-                    Constraint::Percentage(52),
-                    Constraint::Length(10),
-                    Constraint::Percentage(48),
+                    Constraint::Percentage(50),
+                    Constraint::Length(2),
+                    Constraint::Percentage(50),
                 ])
                 .split(cpu_inner);
 
@@ -352,7 +368,14 @@ fn main() -> io::Result<()> {
                 .data(&app.gpu_history)
                 .max(100);
 
+            let cpu_info_block = Block::default()
+                .title(format!(" {} ", cpu_name))
+                .borders(Borders::ALL);
+
+            let cpu_info_inner = cpu_info_block.inner(cpu_split[2]);
+
             let cpu_info = Paragraph::new(cpu_text);
+
             let gpu_info = Paragraph::new(gpu_text);
 
             let ram_widget = Paragraph::new(ram_text)
@@ -382,7 +405,9 @@ fn main() -> io::Result<()> {
                 );
 
             frame.render_widget(cpu_chart, cpu_split[0]);
-            frame.render_widget(cpu_info, cpu_split[2]);
+
+            frame.render_widget(cpu_info_block, cpu_split[2]);
+            frame.render_widget(cpu_info, cpu_info_inner);
 
             frame.render_widget(gpu_chart, gpu_split[0]);
             frame.render_widget(gpu_info, gpu_split[2]);
