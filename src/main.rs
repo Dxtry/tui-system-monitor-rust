@@ -50,6 +50,39 @@ fn draw_bar(percent: f64, width: usize) -> String {
     format!("{}{}", "◼".repeat(filled), "◻".repeat(empty))
 }
 
+fn build_cpu_wave(history: &Vec<u64>, height: usize, width: usize) -> Vec<String> {
+    let mut grid = vec![vec![' '; width]; height];
+
+    let mid = height / 2;
+
+    let start = if history.len() > width {
+        history.len() - width
+    } else {
+        0
+    };
+
+    for (x, value) in history[start..].iter().enumerate() {
+        let amplitude = ((*value as f64 / 100.0) * (height as f64 / 2.0)).round() as usize;
+
+        // центр — ВСЕГДА одна линия
+        grid[mid][x] = ':';
+
+        // расширение вверх и вниз
+        for y in 1..=amplitude {
+            if mid + y < height {
+                grid[mid + y][x] = ':';
+            }
+            if mid >= y {
+                grid[mid - y][x] = ':';
+            }
+        }
+    }
+
+    grid.into_iter()
+        .map(|row| row.into_iter().collect())
+        .collect()
+}
+
 struct App{
     cpu_history: Vec<u64>,
     gpu_history: Vec<u64>,
@@ -243,7 +276,7 @@ fn main() -> io::Result<()> {
             let disk_bar = draw_bar(disk_percent, 14);
 
             disks_text.push_str(&format!(
-                "{}: {:.1}%\n[{}] ({:.2} / {:.2} GB)\n\n",
+                "{}: {:.1}% {} \n({:.2} / {:.2} GB)\n\n",
                 clean_name,
                 disk_percent,
                 disk_bar,
@@ -360,9 +393,11 @@ fn main() -> io::Result<()> {
                 ])
                 .split(left_column[0]);
 
-            let cpu_chart = Sparkline::default()
-                .data(&app.cpu_history)
-                .max(100);
+            let cpu_wave_lines = build_cpu_wave(&app.cpu_history, 7, cpu_split[0].width as usize);
+
+            let cpu_wave_text = cpu_wave_lines.join("\n");
+
+            let cpu_chart = Paragraph::new(cpu_wave_text);
 
             let gpu_chart = Sparkline::default()
                 .data(&app.gpu_history)
