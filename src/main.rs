@@ -83,6 +83,35 @@ fn build_cpu_wave(history: &Vec<u64>, height: usize, width: usize) -> Vec<String
         .collect()
 }
 
+#[cfg(target_os = "linux")]
+fn get_cpu_temps() -> Vec<f64> {
+    use std::fs;
+
+    let mut temps = Vec::new();
+
+    if let Ok(entries) = fs::read_dir("/sys/class/hwmon") {
+        for entry in entries.flatten() {
+            let path = entry.path();
+
+            for i in 1..=10 {
+                let temp_path = path.join(format!("temp{}_input", i));
+
+                if let Ok(content) = fs::read_to_string(&temp_path) {
+                    if let Ok(value) = content.trim().parse::<f64>() {
+                        temps.push(value / 1000.0);
+                    }
+                }
+            }
+        }
+    }
+
+    temps
+}
+
+#[cfg(target_os = "windows")]
+fn get_cpu_temps() -> Vec<f64> {
+    Vec::new() // fallback
+}
 struct App{
     cpu_history: Vec<u64>,
     gpu_history: Vec<u64>,
@@ -152,6 +181,7 @@ fn main() -> io::Result<()> {
         let cpu_name = system.cpus()[0].brand().to_string();
         let cpu_usage = system.global_cpu_usage();
         let cpus = system.cpus();
+        let temps = get_cpu_temps();
 
         let total_memory = system.total_memory();
         let used_memory = system.used_memory();
@@ -186,10 +216,17 @@ fn main() -> io::Result<()> {
                 if index < cpus.len() {
                     let cpu = &cpus[index];
 
+                    let temp_text = if index < temps.len(){
+                        format!("{:.0}°C", temps[index])
+                    } else {
+                        "N/A".to_string()
+                    };
+
                     let core_text = format!(
-                        "C{:<1} {:>5.1}% --°C",
+                        "C{:<1} {:>5.1}% {}",
                         index,
-                        cpu.cpu_usage()
+                        cpu.cpu_usage(),
+                        temp_text
                     );
 
                     line.push_str(&core_text);
