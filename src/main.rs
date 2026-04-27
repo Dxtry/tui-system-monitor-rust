@@ -329,16 +329,13 @@ fn main() -> io::Result<()> {
         terminal.draw(|frame| {
             let area = frame.area();
 
-            let cpu_height = 9;
-            let gpu_height = 7;
-
             let vertical = Layout::default()
                 .direction(Direction::Vertical)
                 .margin(1)
                 .constraints([
-                    Constraint::Length(cpu_height),
-                    Constraint::Length(gpu_height),
-                    Constraint::Min(10),
+                    Constraint::Percentage(25), //CPU
+                    Constraint::Percentage(25), //GPU
+                    Constraint::Percentage(50),
                 ])
                 .split(area);
 
@@ -380,8 +377,8 @@ fn main() -> io::Result<()> {
             let left_column = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(8),
-                    Constraint::Min(6),
+                    Constraint::Percentage(55), // RAM + DISKS
+                    Constraint::Percentage(45), // NETWORK
                 ])
                 .split(bottom[0]);
 
@@ -393,7 +390,9 @@ fn main() -> io::Result<()> {
                 ])
                 .split(left_column[0]);
 
-            let cpu_wave_lines = build_cpu_wave(&app.cpu_history, 7, cpu_split[0].width as usize);
+            let cpu_height = cpu_split[0].height as usize;
+
+            let cpu_wave_lines = build_cpu_wave(&app.cpu_history, cpu_height, cpu_split[0].width as usize);
 
             let cpu_wave_text = cpu_wave_lines.join("\n");
 
