@@ -11,7 +11,7 @@ use crossterm::{
 
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Paragraph, Cell, Row, Table, Sparkline},
+    widgets::{Block, Borders, Paragraph, Cell, Row, Table},
 };
 
 use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System, Networks};
@@ -271,14 +271,39 @@ fn main() -> io::Result<()> {
         app.push_cpu(cpu_usage as f64);
         app.push_gpu(gpu_usage_value);
 
-        let gpu_bar = draw_bar(gpu_usage_value, 20);
+        let gpu_bar = draw_bar(gpu_usage_value, 40);
+
+        let mut gpu_power_text = "PWR: N/A".to_string();
+        let mut gpu_power_bar = String::new();
+        if let Some(nvml) = &nvml {
+            if let Ok(device) = nvml.device_by_index(0) {
+
+                if let (Ok(power), Ok(max_power)) = (
+                    device.power_usage(),
+                    device.enforced_power_limit()
+                    ) {
+                    let power_w = power as f64 / 1000.0;
+                    let max_w = max_power as f64 / 1000.0;
+
+                    let percent = (power_w / max_w) * 100.0;
+
+                    gpu_power_bar = draw_bar(percent, 40);
+
+                    gpu_power_text = format! (
+                        "PWR {} {:4.0}W",
+                        gpu_power_bar,
+                        power_w
+                    );
+                }
+            }
+        }
 
         let gpu_text = if gpu_name == "No compatible device found" {
             "NO COMPATIBLE DEVICE FOUND".to_string()
         } else {
             format!(
-                "Модель: {}\nЗагрузка GPU: {:>5.1}% [{}]\n{}\n{}",
-                gpu_name, gpu_usage_value, gpu_bar, gpu_memory_text, gpu_temp_text
+                "GPU {} {:>5.1}%\n{}\n{}\n{}",
+                gpu_bar, gpu_usage_value, gpu_power_text, gpu_memory_text, gpu_temp_text
             )
         };
 
@@ -398,7 +423,7 @@ fn main() -> io::Result<()> {
                 .direction(Direction::Horizontal)
                 .constraints([
                     Constraint::Percentage(52),
-                    Constraint::Length(10),
+                    Constraint::Length(2),
                     Constraint::Percentage(48),
                 ])
                 .split(gpu_inner);
@@ -435,9 +460,17 @@ fn main() -> io::Result<()> {
 
             let cpu_chart = Paragraph::new(cpu_wave_text);
 
-            let gpu_chart = Sparkline::default()
-                .data(&app.gpu_history)
-                .max(100);
+            let gpu_height = gpu_split[0].height as usize;
+
+            let gpu_wave_lines = build_cpu_wave(
+                &app.gpu_history,
+                gpu_height,
+                gpu_split[0].width as usize
+            );
+
+            let gpu_wave_text = gpu_wave_lines.join("\n");
+
+            let gpu_chart = Paragraph::new(gpu_wave_text);
 
             let cpu_info_block = Block::default()
                 .title(format!(" {} ", cpu_name))
@@ -446,6 +479,12 @@ fn main() -> io::Result<()> {
             let cpu_info_inner = cpu_info_block.inner(cpu_split[2]);
 
             let cpu_info = Paragraph::new(cpu_text);
+
+            let gpu_info_block = Block::default()
+                .title(format!(" {} ", gpu_name))
+                .borders(Borders::ALL);
+
+            let gpu_info_inner = gpu_info_block.inner(gpu_split[2]);
 
             let gpu_info = Paragraph::new(gpu_text);
 
@@ -481,7 +520,8 @@ fn main() -> io::Result<()> {
             frame.render_widget(cpu_info, cpu_info_inner);
 
             frame.render_widget(gpu_chart, gpu_split[0]);
-            frame.render_widget(gpu_info, gpu_split[2]);
+            frame.render_widget(gpu_info_block, gpu_split[2]);
+            frame.render_widget(gpu_info, gpu_info_inner);
 
 
             frame.render_widget(ram_widget, left_top[0]);
