@@ -115,6 +115,8 @@ fn get_cpu_temps() -> Vec<f64> {
 struct App{
     cpu_history: Vec<u64>,
     gpu_history: Vec<u64>,
+    gpu_temp_history: Vec<u64>,
+    gpu_mem_history: Vec<u64>,
     max_points: usize,
 }
 
@@ -123,6 +125,8 @@ impl App {
         Self {
             cpu_history: Vec::new(),
             gpu_history: Vec::new(),
+            gpu_temp_history: Vec::new(),
+            gpu_mem_history: Vec::new(),
             max_points,
         }
     }
@@ -142,6 +146,24 @@ impl App {
 
         if self.gpu_history.len() > self.max_points {
             self.gpu_history.remove(0);
+        }
+    }
+
+    fn push_gpu_temp(&mut self, value: f64) {
+        let val = value as u64;
+        self.gpu_temp_history.push(val);
+
+        if self.gpu_temp_history.len() > self.max_points {
+            self.gpu_temp_history.remove(0);
+        }
+    }
+
+    fn push_gpu_mem(&mut self, percent: f64) {
+        let val = percent.clamp(0.0, 100.0) as u64;
+        self.gpu_mem_history.push(val);
+
+        if self.gpu_mem_history.len() > self.max_points {
+            self.gpu_mem_history.remove(0);
         }
     }
 }
@@ -246,6 +268,9 @@ fn main() -> io::Result<()> {
         let mut gpu_memory_text = "Память GPU: Недоступно".to_string();
         let mut gpu_temp_text = "Температура: Недоступно".to_string();
 
+        let mut gpu_temp_value = 0.0;
+        let mut gpu_mem_percent = 0.0;
+
         if let Some(nvml) = &nvml {
             if let Ok(device) = nvml.device_by_index(0) {
                 gpu_name = device
@@ -259,10 +284,18 @@ fn main() -> io::Result<()> {
                 if let Ok(mem) = device.memory_info() {
                     let used_mb = bytes_to_mb(mem.used);
                     let total_mb = bytes_to_mb(mem.total);
-                    gpu_memory_text = format!("Память GPU: {:.1} / {:.1} MB", used_mb, total_mb);
+
+                    gpu_mem_percent = (mem.used as f64 / mem.total as f64) * 100.0;
+
+                    gpu_memory_text = format!(
+                        "Total: {:.1} GB | Used: {:.1} GB",
+                        total_mb / 1024.0,
+                        used_mb / 1024.0
+                    );
                 }
 
                 if let Ok(temp) = device.temperature(TemperatureSensor::Gpu) {
+                    gpu_temp_value = temp as f64;
                     gpu_temp_text = format!("Температура: {}°C", temp);
                 }
             }
@@ -270,6 +303,8 @@ fn main() -> io::Result<()> {
 
         app.push_cpu(cpu_usage as f64);
         app.push_gpu(gpu_usage_value);
+        app.push_gpu_temp(gpu_temp_value);
+        app.push_gpu_mem(gpu_mem_percent);
 
         let gpu_bar = draw_bar(gpu_usage_value, 40);
 
@@ -302,8 +337,8 @@ fn main() -> io::Result<()> {
             "NO COMPATIBLE DEVICE FOUND".to_string()
         } else {
             format!(
-                "GPU {} {:>5.1}%\n{}\n{}\n{}",
-                gpu_bar, gpu_usage_value, gpu_power_text, gpu_memory_text, gpu_temp_text
+                "GPU {} {:>5.1}%\n{}",
+                gpu_bar, gpu_usage_value, gpu_power_text
             )
         };
 
@@ -472,6 +507,23 @@ fn main() -> io::Result<()> {
 
             let gpu_chart = Paragraph::new(gpu_wave_text);
 
+            let gpu_right = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(5), // верхний блок: основная инфа
+                    Constraint::Min(5),    // нижняя часть: temp + memory
+                ])
+                .split(gpu_split[2]);
+
+            let gpu_bottom = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(50),
+                    Constraint::Percentage(50),
+                ])
+                .split(gpu_right[1]);
+
+
             let cpu_info_block = Block::default()
                 .title(format!(" {} ", cpu_name))
                 .borders(Borders::ALL);
@@ -484,9 +536,35 @@ fn main() -> io::Result<()> {
                 .title(format!(" {} ", gpu_name))
                 .borders(Borders::ALL);
 
-            let gpu_info_inner = gpu_info_block.inner(gpu_split[2]);
+            let gpu_info_inner = gpu_info_block.inner(gpu_right[0]);
 
             let gpu_info = Paragraph::new(gpu_text);
+
+            let gpu_temp_wave_lines = build_cpu_wave(
+                &app.gpu_temp_history,
+                gpu_bottom[0].height.saturating_sub(2) as usize,
+                gpu_bottom[0].width.saturating_sub(2) as usize,
+            );
+
+            let gpu_temp_widget = Paragraph::new(format!(
+                "{}\n{}",
+                gpu_temp_text,
+                gpu_temp_wave_lines.join("\n")
+            ))
+                .block(Block::default().title(" TEMP ").borders(Borders::ALL));
+
+            let gpu_mem_wave_lines = build_cpu_wave(
+                &app.gpu_mem_history,
+                gpu_bottom[1].height.saturating_sub(2) as usize,
+                gpu_bottom[1].width.saturating_sub(2) as usize,
+            );
+
+            let gpu_mem_widget = Paragraph::new(format!(
+                "{}\n{}",
+                gpu_memory_text,
+                gpu_mem_wave_lines.join("\n")
+            ))
+                .block(Block::default().title(" VRAM ").borders(Borders::ALL));
 
             let ram_widget = Paragraph::new(ram_text)
                 .block(Block::default().title(" RAM ").borders(Borders::ALL));
@@ -520,8 +598,12 @@ fn main() -> io::Result<()> {
             frame.render_widget(cpu_info, cpu_info_inner);
 
             frame.render_widget(gpu_chart, gpu_split[0]);
-            frame.render_widget(gpu_info_block, gpu_split[2]);
+
+            frame.render_widget(gpu_info_block, gpu_right[0]);
             frame.render_widget(gpu_info, gpu_info_inner);
+
+            frame.render_widget(gpu_temp_widget, gpu_bottom[0]);
+            frame.render_widget(gpu_mem_widget, gpu_bottom[1]);
 
 
             frame.render_widget(ram_widget, left_top[0]);
