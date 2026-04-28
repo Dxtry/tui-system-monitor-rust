@@ -83,6 +83,33 @@ fn build_cpu_wave(history: &Vec<u64>, height: usize, width: usize) -> Vec<String
         .collect()
 }
 
+fn build_temp_graph(history: &Vec<u64>, height: usize, width: usize) -> Vec<String> {
+    let mut grid = vec![vec![' '; width]; height];
+
+    let start = if history.len() > width {
+        history.len() - width
+    } else {
+        0
+    };
+
+    for (x, value) in history[start..].iter().enumerate() {
+        let percent = (*value as f64 / 100.0).clamp(0.0, 1.0);
+
+        let col_height = (percent * height as f64).round() as usize;
+
+        for y in 0..col_height {
+            if y < height {
+                // рисуем СНИЗУ вверх
+                grid[height - 1 - y][x] = '.';
+            }
+        }
+    }
+
+    grid.into_iter()
+        .map(|row| row.into_iter().collect())
+        .collect()
+}
+
 #[cfg(target_os = "linux")]
 fn get_cpu_temps() -> Vec<f64> {
     use std::fs;
@@ -540,31 +567,32 @@ fn main() -> io::Result<()> {
 
             let gpu_info = Paragraph::new(gpu_text);
 
-            let gpu_temp_wave_lines = build_cpu_wave(
+            let temp_graph_lines = build_temp_graph(
                 &app.gpu_temp_history,
                 gpu_bottom[0].height.saturating_sub(2) as usize,
                 gpu_bottom[0].width.saturating_sub(2) as usize,
             );
 
-            let gpu_temp_widget = Paragraph::new(format!(
-                "{}\n{}",
-                gpu_temp_text,
-                gpu_temp_wave_lines.join("\n")
-            ))
-                .block(Block::default().title(" TEMP ").borders(Borders::ALL));
+            let gpu_temp_widget = Paragraph::new(temp_graph_lines.join("\n"))
+                .block(
+                    Block::default()
+                        .title(format!(" TEMP — {}°C ", gpu_temp_value as u64))
+                        .borders(Borders::ALL),
+                );
 
-            let gpu_mem_wave_lines = build_cpu_wave(
-                &app.gpu_mem_history,
-                gpu_bottom[1].height.saturating_sub(2) as usize,
-                gpu_bottom[1].width.saturating_sub(2) as usize,
-            );
+            let vram_bar = draw_bar(gpu_mem_percent, 20);
 
             let gpu_mem_widget = Paragraph::new(format!(
-                "{}\n{}",
+                "{}\n\n{} {:>5.1}%",
                 gpu_memory_text,
-                gpu_mem_wave_lines.join("\n")
+                vram_bar,
+                gpu_mem_percent
             ))
-                .block(Block::default().title(" VRAM ").borders(Borders::ALL));
+                .block(
+                    Block::default()
+                        .title(" VRAM ")
+                        .borders(Borders::ALL),
+                );
 
             let ram_widget = Paragraph::new(ram_text)
                 .block(Block::default().title(" RAM ").borders(Borders::ALL));
