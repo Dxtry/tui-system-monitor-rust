@@ -242,9 +242,6 @@ fn main() -> io::Result<()> {
         let free_memory_gb = bytes_to_gb(free_memory);
         let available_memory_gb = bytes_to_gb(available_memory);
 
-        let ram_percent = (used_memory as f64 / total_memory as f64) * 100.0;
-        let ram_bar = draw_bar(ram_percent, 20);
-
         let cpu_bar = draw_bar(cpu_usage as f64, 30);
         let mut cpu_text = format!(
             "CPU {} {:>5.1}%\n\n",
@@ -369,14 +366,26 @@ fn main() -> io::Result<()> {
             )
         };
 
+        let ram_percent = (used_memory as f64 / total_memory as f64) * 100.0;
+        let ram_bar = draw_bar(ram_percent, 20);
+
+        let free_percent = (free_memory as f64 / total_memory as f64) * 100.0;
+        let avail_percent = (available_memory as f64 / total_memory as f64) * 100.0;
+
+        let free_bar = draw_bar(free_percent, 20);
+        let avail_bar = draw_bar(avail_percent, 20);
+
         let ram_text = format!(
-            "Использование: {:.1}%\n[{}]\n\nTotal:     {:.2} GB\nUsed:      {:.2} GB\nFree:      {:.2} GB\nAvailable: {:.2} GB",
-            ram_percent,
-            ram_bar,
-            total_memory_gb,
+            "\n Used: {:.2} GB\n {} {:.1}%\n\n Free: {:.2} GB\n {} {:.1}%\n\n Available: {:.2} GB\n {} {:.1}%",
             used_memory_gb,
+            ram_bar,
+            ram_percent,
             free_memory_gb,
-            available_memory_gb
+            free_bar,
+            free_percent,
+            available_memory_gb,
+            avail_bar,
+            avail_percent,
         );
 
         let mut disks_text = String::new();
@@ -400,7 +409,7 @@ fn main() -> io::Result<()> {
             let disk_bar = draw_bar(disk_percent, 14);
 
             disks_text.push_str(&format!(
-                "{}: {:.1}% {} \n({:.2} / {:.2} GB)\n\n",
+                "\n {}: {:.1}% {} \n ({:.2} / {:.2} GB)\n\n",
                 clean_name,
                 disk_percent,
                 disk_bar,
@@ -595,7 +604,9 @@ fn main() -> io::Result<()> {
                 );
 
             let ram_widget = Paragraph::new(ram_text)
-                .block(Block::default().title(" RAM ").borders(Borders::ALL));
+                .block(Block::default()
+                    .title(format!(" RAM — {:>5.2}GB ", total_memory_gb))
+                    .borders(Borders::ALL));
 
             let disks_widget = Paragraph::new(disks_text)
                 .block(Block::default().title(" DISKS ").borders(Borders::ALL));
