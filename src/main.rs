@@ -144,6 +144,7 @@ struct App{
     gpu_history: Vec<u64>,
     gpu_temp_history: Vec<u64>,
     gpu_mem_history: Vec<u64>,
+    net_history: Vec<u64>,
     max_points: usize,
 }
 
@@ -154,6 +155,7 @@ impl App {
             gpu_history: Vec::new(),
             gpu_temp_history: Vec::new(),
             gpu_mem_history: Vec::new(),
+            net_history: Vec::new(),
             max_points,
         }
     }
@@ -191,6 +193,15 @@ impl App {
 
         if self.gpu_mem_history.len() > self.max_points {
             self.gpu_mem_history.remove(0);
+        }
+    }
+
+    fn push_net(&mut self, value: f64) {
+        let clamped = value.clamp(0.0, 100.0) as u64;
+        self.net_history.push(clamped);
+
+        if self.net_history.len() > self.max_points {
+            self.net_history.remove(0);
         }
     }
 }
@@ -418,26 +429,41 @@ fn main() -> io::Result<()> {
             ));
         }
 
-        let mut network_text = String::new();
-        for (interface_name, network) in &networks {
-            let rx_mb = bytes_to_mb(network.received());
-            let tx_mb = bytes_to_mb(network.transmitted());
-            let total_rx_mb = bytes_to_mb(network.total_received());
-            let total_tx_mb = bytes_to_mb(network.total_transmitted());
+        let mut rx_bytes = 0u64;
+        let mut tx_bytes = 0u64;
+        let mut total_rx_bytes = 0u64;
+        let mut total_tx_bytes = 0u64;
 
-            network_text.push_str(&format!(
-                "{}\nRX: {:.2} MB | TX: {:.2} MB\nTotal RX: {:.2} MB\nTotal TX: {:.2} MB\n\n",
-                interface_name,
-                rx_mb,
-                tx_mb,
-                total_rx_mb,
-                total_tx_mb
-            ));
+        for (_interface_name, network) in &networks {
+            rx_bytes += network.received();
+            tx_bytes += network.transmitted();
+            total_rx_bytes += network.total_received();
+            total_tx_bytes += network.total_transmitted();
         }
 
-        if network_text.is_empty() {
-            network_text = "Нет доступных сетевых интерфейсов".to_string();
-        }
+        let rx_mb = bytes_to_mb(rx_bytes);
+        let tx_mb = bytes_to_mb(tx_bytes);
+        let total_rx_mb = bytes_to_mb(total_rx_bytes);
+        let total_tx_mb = bytes_to_mb(total_tx_bytes);
+
+        // 200 мс = 0.2 секунды, потому что у тебя poll стоит на 200 ms
+        let interval_sec = 0.2;
+
+        let download_speed = rx_mb / interval_sec;
+        let upload_speed = tx_mb / interval_sec;
+
+        // 1 MB/s считаем как 100% активности для графика
+        let net_activity = ((download_speed + upload_speed) / 1.0) * 100.0;
+
+        app.push_net(net_activity);
+
+        let network_text = format!(
+            "\n Download ↓{:>6.2} MB/s\n Total: {:.2} MB\n\n Upload ↑{:>6.2} MB/s\n Total: {:.2} MB",
+            download_speed,
+            total_rx_mb,
+            upload_speed,
+            total_tx_mb
+        );
 
         let mut processes: Vec<_> = system.processes().iter().collect();
         processes.sort_by(|a, b| b.1.memory().cmp(&a.1.memory()));
@@ -611,8 +637,30 @@ fn main() -> io::Result<()> {
             let disks_widget = Paragraph::new(disks_text)
                 .block(Block::default().title(" DISKS ").borders(Borders::ALL));
 
-            let network_widget = Paragraph::new(network_text)
-                .block(Block::default().title(" NETWORK ").borders(Borders::ALL));
+            let network_block = Block::default()
+                .title(" NETWORK ")
+                .borders(Borders::ALL);
+
+            let network_inner = network_block.inner(left_column[1]);
+
+            let network_split = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(60),
+                    Constraint::Percentage(40),
+                ])
+                .split(network_inner);
+
+            let net_wave_lines = build_cpu_wave(
+                &app.net_history,
+                network_split[0].height as usize,
+                network_split[0].width as usize,
+            );
+
+            let net_chart = Paragraph::new(net_wave_lines.join("\n"));
+
+            let net_info = Paragraph::new(network_text)
+                .block(Block::default().title(" INFO ").borders(Borders::ALL));
 
             let processes_widget = Table::new(
                 process_rows,
@@ -647,7 +695,10 @@ fn main() -> io::Result<()> {
 
             frame.render_widget(ram_widget, left_top[0]);
             frame.render_widget(disks_widget, left_top[1]);
-            frame.render_widget(network_widget, left_column[1]);
+
+            frame.render_widget(network_block, left_column[1]);
+            frame.render_widget(net_chart, network_split[0]);
+            frame.render_widget(net_info, network_split[1]);
 
             frame.render_widget(processes_widget, bottom[1]);
         })?;
