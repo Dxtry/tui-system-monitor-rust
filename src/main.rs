@@ -475,12 +475,19 @@ fn main() -> io::Result<()> {
                 let cpu = format!("{:.1}", process.cpu_usage());
                 let memory_mb = format!("{:.1}", process.memory() as f64 / 1024.0 / 1024.0);
                 let name = truncate_text(&process.name().to_string_lossy(), 26);
+                let path = process
+                    .exe()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or("N/A".to_string());
+
+                let path = truncate_text(&path, 55);
 
                 Row::new(vec![
                     Cell::from(pid.to_string()),
                     Cell::from(cpu),
                     Cell::from(memory_mb),
                     Cell::from(name),
+                    Cell::from(path),
                 ])
             })
             .collect();
@@ -668,10 +675,11 @@ fn main() -> io::Result<()> {
                     Constraint::Length(9),
                     Constraint::Length(8),
                     Constraint::Length(11),
+                    Constraint::Length(24),
                     Constraint::Min(16),
                 ],
             )
-                .header(Row::new(vec!["PID", "CPU%", "RAM(MB)", "NAME"]))
+                .header(Row::new(vec!["PID", "CPU%", "RAM(MB)", "NAME", "PATH"]))
                 .column_spacing(3)
                 .block(
                     Block::default()
