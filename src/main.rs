@@ -702,13 +702,15 @@ fn main() -> io::Result<()> {
 
             frame.render_widget(processes_widget, bottom[1]);
         })?;
-        if event::poll(Duration::from_millis(200))? {
+        if event::poll(Duration::from_millis(0))? {
             if let Event::Key(key) = event::read()? {
                 if key.code == KeyCode::Char('q') {
                     break;
                 }
             }
         }
+
+        std::thread::sleep(Duration::from_millis(200));
     }
 
     disable_raw_mode()?;
