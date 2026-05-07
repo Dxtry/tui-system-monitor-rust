@@ -499,7 +499,7 @@ fn main() -> io::Result<()> {
                 .direction(Direction::Vertical)
                 .margin(1)
                 .constraints([
-                    Constraint::Percentage(25), //CPU
+                    Constraint::Percentage(22), //CPU
                     Constraint::Percentage(25), //GPU
                     Constraint::Percentage(50),
                 ])
@@ -509,6 +509,16 @@ fn main() -> io::Result<()> {
             let gpu_block = Block::default().title(" GPU ").borders(Borders::ALL);
 
             let cpu_inner = cpu_block.inner(vertical[0]);
+
+            let cpu_compact = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Min(0),
+                    Constraint::Length(8),
+                    Constraint::Min(0),
+                ])
+                .split(cpu_inner);
+
             let gpu_inner = gpu_block.inner(vertical[1]);
 
             frame.render_widget(cpu_block, vertical[0]);
@@ -517,18 +527,18 @@ fn main() -> io::Result<()> {
             let cpu_split = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
-                    Constraint::Percentage(50),
+                    Constraint::Percentage(60),
                     Constraint::Length(2),
-                    Constraint::Percentage(50),
+                    Constraint::Percentage(40),
                 ])
-                .split(cpu_inner);
+                .split(cpu_compact[1]);
 
             let gpu_split = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
-                    Constraint::Percentage(52),
+                    Constraint::Percentage(63),
                     Constraint::Length(2),
-                    Constraint::Percentage(48),
+                    Constraint::Percentage(37),
                 ])
                 .split(gpu_inner);
 
