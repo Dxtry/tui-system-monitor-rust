@@ -12,6 +12,7 @@ use crossterm::{
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Paragraph, Cell, Row, Table},
+    style::{Color, Style},
 };
 
 use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System, Networks};
@@ -20,6 +21,7 @@ use nvml_wrapper::{
     enum_wrappers::device::TemperatureSensor,
     Nvml,
 };
+use ratatui::widgets::BorderType;
 
 fn bytes_to_gb(bytes: u64) -> f64{
     bytes as f64 / 1024.0 / 1024.0 / 1024.0
@@ -470,7 +472,7 @@ fn main() -> io::Result<()> {
 
         let process_rows: Vec<Row> = processes
             .into_iter()
-            .take(20)
+            .take(25)
             .map(|(pid, process)| {
                 let cpu = format!("{:.1}", process.cpu_usage());
                 let memory_mb = format!("{:.1}", process.memory() as f64 / 1024.0 / 1024.0);
@@ -501,12 +503,26 @@ fn main() -> io::Result<()> {
                 .constraints([
                     Constraint::Percentage(22), //CPU
                     Constraint::Percentage(25), //GPU
-                    Constraint::Percentage(50),
+                    Constraint::Percentage(53),
                 ])
                 .split(area);
 
-            let cpu_block = Block::default().title(" CPU ").borders(Borders::ALL);
-            let gpu_block = Block::default().title(" GPU ").borders(Borders::ALL);
+            let cpu_block = Block::default()
+                .title(" CPU ")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(Color::Rgb(48, 48, 48)))
+                .style(Style::default().fg(Color::Rgb(148, 148, 148)))
+                .title_style(Style::default().fg(Color::Rgb(112, 158, 158)));
+
+
+            let gpu_block = Block::default()
+                .title(" GPU ")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(Color::Rgb(48, 48, 48)))
+                .style(Style::default().fg(Color::Rgb(148, 148, 148)))
+                .title_style(Style::default().fg(Color::Rgb(112, 158, 158)));
 
             let cpu_inner = cpu_block.inner(vertical[0]);
 
@@ -605,7 +621,11 @@ fn main() -> io::Result<()> {
 
             let cpu_info_block = Block::default()
                 .title(format!(" {} ", cpu_name))
-                .borders(Borders::ALL);
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(Color::Rgb(48, 48, 48)))
+                .style(Style::default().fg(Color::Rgb(148, 148, 148)))
+                .title_style(Style::default().fg(Color::Rgb(112, 158, 158)));
 
             let cpu_info_inner = cpu_info_block.inner(cpu_split[2]);
 
@@ -613,7 +633,11 @@ fn main() -> io::Result<()> {
 
             let gpu_info_block = Block::default()
                 .title(format!(" {} ", gpu_name))
-                .borders(Borders::ALL);
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(Color::Rgb(48, 48, 48)))
+                .style(Style::default().fg(Color::Rgb(148, 148, 148)))
+                .title_style(Style::default().fg(Color::Rgb(112, 158, 158)));
 
             let gpu_info_inner = gpu_info_block.inner(gpu_right[0]);
 
@@ -629,7 +653,11 @@ fn main() -> io::Result<()> {
                 .block(
                     Block::default()
                         .title(format!(" TEMP — {}°C ", gpu_temp_value as u64))
-                        .borders(Borders::ALL),
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .border_style(Style::default().fg(Color::Rgb(48, 48, 48)))
+                        .style(Style::default().fg(Color::Rgb(148, 148, 148)))
+                        .title_style(Style::default().fg(Color::Rgb(112, 158, 158)))
                 );
 
             let vram_bar = draw_bar(gpu_mem_percent, 20);
@@ -643,20 +671,41 @@ fn main() -> io::Result<()> {
                 .block(
                     Block::default()
                         .title(" VRAM ")
-                        .borders(Borders::ALL),
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .border_style(Style::default().fg(Color::Rgb(48, 48, 48)))
+                        .style(Style::default().fg(Color::Rgb(148, 148, 148)))
+                        .title_style(Style::default().fg(Color::Rgb(112, 158, 158)))
                 );
 
             let ram_widget = Paragraph::new(ram_text)
-                .block(Block::default()
-                    .title(format!(" RAM — {:>5.2}GB ", total_memory_gb))
-                    .borders(Borders::ALL));
+                .block(
+                    Block::default()
+                        .title(format!(" RAM — {:>5.2}GB ", total_memory_gb))
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .border_style(Style::default().fg(Color::Rgb(48, 48, 48)))
+                        .style(Style::default().fg(Color::Rgb(148, 148, 148)))
+                        .title_style(Style::default().fg(Color::Rgb(112, 158, 158)))
+                );
 
             let disks_widget = Paragraph::new(disks_text)
-                .block(Block::default().title(" DISKS ").borders(Borders::ALL));
+                .block(
+                    Block::default()
+                        .title(" DISKS ")
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .border_style(Style::default().fg(Color::Rgb(48, 48, 48)))
+                        .style(Style::default().fg(Color::Rgb(148, 148, 148)))
+                        .title_style(Style::default().fg(Color::Rgb(112, 158, 158)))
+                );
 
             let network_block = Block::default()
                 .title(" NETWORK ")
-                .borders(Borders::ALL);
+                .borders(Borders::ALL).border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(Color::Rgb(48, 48, 48)))
+                .style(Style::default().fg(Color::Rgb(148, 148, 148)))
+                .title_style(Style::default().fg(Color::Rgb(112, 158, 158)));
 
             let network_inner = network_block.inner(left_column[1]);
 
@@ -677,7 +726,15 @@ fn main() -> io::Result<()> {
             let net_chart = Paragraph::new(net_wave_lines.join("\n"));
 
             let net_info = Paragraph::new(network_text)
-                .block(Block::default().title(" INFO ").borders(Borders::ALL));
+                .block(
+                    Block::default()
+                        .title(" INFO ")
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .border_style(Style::default().fg(Color::Rgb(48, 48, 48)))
+                        .style(Style::default().fg(Color::Rgb(148, 148, 148)))
+                        .title_style(Style::default().fg(Color::Rgb(112, 158, 158)))
+                );
 
             let processes_widget = Table::new(
                 process_rows,
@@ -693,8 +750,12 @@ fn main() -> io::Result<()> {
                 .column_spacing(3)
                 .block(
                     Block::default()
-                        .title(" PROCESSES (top by RAM) ")
-                        .borders(Borders::ALL),
+                        .title(" PROCESSES ")
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .border_style(Style::default().fg(Color::Rgb(48, 48, 48)))
+                        .style(Style::default().fg(Color::Rgb(148, 148, 148)))
+                        .title_style(Style::default().fg(Color::Rgb(112, 158, 158)))
                 );
 
             frame.render_widget(cpu_chart, cpu_split[0]);
