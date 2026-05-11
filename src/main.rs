@@ -13,6 +13,7 @@ use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Paragraph, Cell, Row, Table},
     style::{Color, Style},
+    widgets::BorderType,
 };
 
 use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System, Networks};
@@ -21,7 +22,20 @@ use nvml_wrapper::{
     enum_wrappers::device::TemperatureSensor,
     Nvml,
 };
-use ratatui::widgets::BorderType;
+
+const BORDER_COLOR: Color = Color::Rgb(48, 48, 48);
+const TEXT_COLOR: Color = Color::Rgb(148, 148, 148);
+const TITLE_COLOR: Color = Color::Rgb(112, 158, 158);
+
+fn styled_block(title: impl Into<ratatui::text::Line<'static>>) -> Block<'static> {
+    Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(BORDER_COLOR))
+        .style(Style::default().fg(TEXT_COLOR))
+        .title_style(Style::default().fg(TITLE_COLOR))
+}
 
 fn bytes_to_gb(bytes: u64) -> f64{
     bytes as f64 / 1024.0 / 1024.0 / 1024.0
@@ -507,22 +521,8 @@ fn main() -> io::Result<()> {
                 ])
                 .split(area);
 
-            let cpu_block = Block::default()
-                .title(" CPU ")
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(Color::Rgb(48, 48, 48)))
-                .style(Style::default().fg(Color::Rgb(148, 148, 148)))
-                .title_style(Style::default().fg(Color::Rgb(112, 158, 158)));
-
-
-            let gpu_block = Block::default()
-                .title(" GPU ")
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(Color::Rgb(48, 48, 48)))
-                .style(Style::default().fg(Color::Rgb(148, 148, 148)))
-                .title_style(Style::default().fg(Color::Rgb(112, 158, 158)));
+            let cpu_block = styled_block(" CPU ");
+            let gpu_block = styled_block(" GPU ");
 
             let cpu_inner = cpu_block.inner(vertical[0]);
 
@@ -619,25 +619,13 @@ fn main() -> io::Result<()> {
                 .split(gpu_right[1]);
 
 
-            let cpu_info_block = Block::default()
-                .title(format!(" {} ", cpu_name))
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(Color::Rgb(48, 48, 48)))
-                .style(Style::default().fg(Color::Rgb(148, 148, 148)))
-                .title_style(Style::default().fg(Color::Rgb(112, 158, 158)));
+            let cpu_info_block = styled_block(format!(" {} ", cpu_name));
 
             let cpu_info_inner = cpu_info_block.inner(cpu_split[2]);
 
             let cpu_info = Paragraph::new(cpu_text);
 
-            let gpu_info_block = Block::default()
-                .title(format!(" {} ", gpu_name))
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(Color::Rgb(48, 48, 48)))
-                .style(Style::default().fg(Color::Rgb(148, 148, 148)))
-                .title_style(Style::default().fg(Color::Rgb(112, 158, 158)));
+            let gpu_info_block = styled_block(format!(" {} ", gpu_name));
 
             let gpu_info_inner = gpu_info_block.inner(gpu_right[0]);
 
@@ -651,13 +639,7 @@ fn main() -> io::Result<()> {
 
             let gpu_temp_widget = Paragraph::new(temp_graph_lines.join("\n"))
                 .block(
-                    Block::default()
-                        .title(format!(" TEMP — {}°C ", gpu_temp_value as u64))
-                        .borders(Borders::ALL)
-                        .border_type(BorderType::Rounded)
-                        .border_style(Style::default().fg(Color::Rgb(48, 48, 48)))
-                        .style(Style::default().fg(Color::Rgb(148, 148, 148)))
-                        .title_style(Style::default().fg(Color::Rgb(112, 158, 158)))
+                    styled_block(format!(" TEMP — {}°C ", gpu_temp_value as u64))
                 );
 
             let vram_bar = draw_bar(gpu_mem_percent, 20);
@@ -668,44 +650,19 @@ fn main() -> io::Result<()> {
                 vram_bar,
                 gpu_mem_percent
             ))
-                .block(
-                    Block::default()
-                        .title(" VRAM ")
-                        .borders(Borders::ALL)
-                        .border_type(BorderType::Rounded)
-                        .border_style(Style::default().fg(Color::Rgb(48, 48, 48)))
-                        .style(Style::default().fg(Color::Rgb(148, 148, 148)))
-                        .title_style(Style::default().fg(Color::Rgb(112, 158, 158)))
-                );
+                .block(styled_block(" VRAM "));
 
             let ram_widget = Paragraph::new(ram_text)
                 .block(
-                    Block::default()
-                        .title(format!(" RAM — {:>5.2}GB ", total_memory_gb))
-                        .borders(Borders::ALL)
-                        .border_type(BorderType::Rounded)
-                        .border_style(Style::default().fg(Color::Rgb(48, 48, 48)))
-                        .style(Style::default().fg(Color::Rgb(148, 148, 148)))
-                        .title_style(Style::default().fg(Color::Rgb(112, 158, 158)))
+                    styled_block(format!(" RAM — {:>5.2}GB ", total_memory_gb))
                 );
 
             let disks_widget = Paragraph::new(disks_text)
                 .block(
-                    Block::default()
-                        .title(" DISKS ")
-                        .borders(Borders::ALL)
-                        .border_type(BorderType::Rounded)
-                        .border_style(Style::default().fg(Color::Rgb(48, 48, 48)))
-                        .style(Style::default().fg(Color::Rgb(148, 148, 148)))
-                        .title_style(Style::default().fg(Color::Rgb(112, 158, 158)))
+                    styled_block(" DISKS ")
                 );
 
-            let network_block = Block::default()
-                .title(" NETWORK ")
-                .borders(Borders::ALL).border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(Color::Rgb(48, 48, 48)))
-                .style(Style::default().fg(Color::Rgb(148, 148, 148)))
-                .title_style(Style::default().fg(Color::Rgb(112, 158, 158)));
+            let network_block = styled_block(" NETWORK ");
 
             let network_inner = network_block.inner(left_column[1]);
 
@@ -726,15 +683,7 @@ fn main() -> io::Result<()> {
             let net_chart = Paragraph::new(net_wave_lines.join("\n"));
 
             let net_info = Paragraph::new(network_text)
-                .block(
-                    Block::default()
-                        .title(" INFO ")
-                        .borders(Borders::ALL)
-                        .border_type(BorderType::Rounded)
-                        .border_style(Style::default().fg(Color::Rgb(48, 48, 48)))
-                        .style(Style::default().fg(Color::Rgb(148, 148, 148)))
-                        .title_style(Style::default().fg(Color::Rgb(112, 158, 158)))
-                );
+                .block(styled_block(" INFO "));
 
             let processes_widget = Table::new(
                 process_rows,
@@ -748,15 +697,7 @@ fn main() -> io::Result<()> {
             )
                 .header(Row::new(vec!["PID", "CPU%", "RAM(MB)", "NAME", "PATH"]))
                 .column_spacing(3)
-                .block(
-                    Block::default()
-                        .title(" PROCESSES ")
-                        .borders(Borders::ALL)
-                        .border_type(BorderType::Rounded)
-                        .border_style(Style::default().fg(Color::Rgb(48, 48, 48)))
-                        .style(Style::default().fg(Color::Rgb(148, 148, 148)))
-                        .title_style(Style::default().fg(Color::Rgb(112, 158, 158)))
-                );
+                .block(styled_block(" PROCESSES "));
 
             frame.render_widget(cpu_chart, cpu_split[0]);
 
