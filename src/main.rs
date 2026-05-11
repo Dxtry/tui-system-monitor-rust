@@ -501,9 +501,9 @@ fn main() -> io::Result<()> {
                 .direction(Direction::Vertical)
                 .margin(1)
                 .constraints([
-                    Constraint::Percentage(22), //CPU
+                    Constraint::Percentage(23), //CPU
                     Constraint::Percentage(25), //GPU
-                    Constraint::Percentage(53),
+                    Constraint::Percentage(52),
                 ])
                 .split(area);
 
