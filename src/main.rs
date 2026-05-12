@@ -258,6 +258,44 @@ fn build_cpu_text(
     cpu_text
 }
 
+fn build_process_rows(system: &System) -> Vec<Row> {
+    let mut processes: Vec<_> = system.processes().iter().collect();
+
+    processes.sort_by(|a, b| b.1.memory().cmp(&a.1.memory()));
+
+    processes
+        .into_iter()
+        .take(25)
+        .map(|(pid, process)| {
+            let cpu = format!("{:.1}", process.cpu_usage());
+
+            let memory_mb = format!(
+                "{:.1}",
+                process.memory() as f64 / 1024.0 / 1024.0
+            );
+
+            let name = truncate_text(
+                &process.name().to_string_lossy(),
+                26
+            );
+
+            let path = process
+                .exe()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or("N/A".to_string());
+
+            let path = truncate_text(&path, 55);
+
+            Row::new(vec![
+                Cell::from(pid.to_string()),
+                Cell::from(cpu),
+                Cell::from(memory_mb),
+                Cell::from(name),
+                Cell::from(path),
+            ])
+        })
+        .collect()
+}
 
 #[cfg(target_os = "linux")]
 fn get_cpu_temps() -> Vec<f64> {
@@ -526,32 +564,7 @@ fn main() -> io::Result<()> {
             upload_speed,
         );
 
-        let mut processes: Vec<_> = system.processes().iter().collect();
-        processes.sort_by(|a, b| b.1.memory().cmp(&a.1.memory()));
-
-        let process_rows: Vec<Row> = processes
-            .into_iter()
-            .take(25)
-            .map(|(pid, process)| {
-                let cpu = format!("{:.1}", process.cpu_usage());
-                let memory_mb = format!("{:.1}", process.memory() as f64 / 1024.0 / 1024.0);
-                let name = truncate_text(&process.name().to_string_lossy(), 26);
-                let path = process
-                    .exe()
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or("N/A".to_string());
-
-                let path = truncate_text(&path, 55);
-
-                Row::new(vec![
-                    Cell::from(pid.to_string()),
-                    Cell::from(cpu),
-                    Cell::from(memory_mb),
-                    Cell::from(name),
-                    Cell::from(path),
-                ])
-            })
-            .collect();
+        let process_rows = build_process_rows(&system);
 
         terminal.draw(|frame| {
             let area = frame.area();
