@@ -11,23 +11,32 @@ use crossterm::{
 
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Paragraph, Cell, Row, Table},
     style::{Color, Style},
-    widgets::BorderType,
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table, BorderType},
 };
 
-use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System, Networks};
+use sysinfo::{
+    CpuRefreshKind, Disks, MemoryRefreshKind, Networks, ProcessRefreshKind,
+    ProcessesToUpdate, RefreshKind, System, Cpu,
+};
 
 use nvml_wrapper::{
     enum_wrappers::device::TemperatureSensor,
     Nvml,
 };
 
+// =============================================
+// 1. КОНСТАНТЫ И СТИЛИ
+// =============================================
+
 const BORDER_COLOR: Color = Color::Rgb(48, 48, 48);
 const TEXT_COLOR: Color = Color::Rgb(148, 148, 148);
 const TITLE_COLOR: Color = Color::Rgb(112, 158, 158);
 
-fn styled_block(title: impl Into<ratatui::text::Line<'static>>) -> Block<'static> {
+// =============================================
+// 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (Helpers)
+// =============================================
+fn styled_block(title: impl Into<Line<'static>>) -> Block<'static> {
     Block::default()
         .title(title)
         .borders(Borders::ALL)
@@ -65,6 +74,8 @@ fn draw_bar(percent: f64, width: usize) -> String {
     let empty = width.saturating_sub(filled);
     format!("{}{}", "◼".repeat(filled), "◻".repeat(empty))
 }
+
+// Графики истории (волна и температура)
 
 fn build_cpu_wave(history: &Vec<u64>, height: usize, width: usize) -> Vec<String> {
     let mut grid = vec![vec![' '; width]; height];
@@ -125,6 +136,10 @@ fn build_temp_graph(history: &Vec<u64>, height: usize, width: usize) -> Vec<Stri
         .map(|row| row.into_iter().collect())
         .collect()
 }
+
+// =============================================
+// 3. ФУНКЦИИ ПОСТРОЕНИЯ ТЕКСТА (Builders)
+// =============================================
 
 fn build_ram_text(
     used_memory_gb: f64,
@@ -208,7 +223,7 @@ fn build_network_text(
 
 fn build_cpu_text(
     cpu_usage: f32,
-    cpus: &[sysinfo::Cpu],
+    cpus: &[Cpu],
     temps: &[f64],
 ) -> String {
     let cpu_bar = draw_bar(cpu_usage as f64, 30);
@@ -258,7 +273,7 @@ fn build_cpu_text(
     cpu_text
 }
 
-fn build_process_rows(system: &System) -> Vec<Row> {
+fn build_process_rows(system: &System) -> Vec<Row<'_>> {
     let mut processes: Vec<_> = system.processes().iter().collect();
 
     processes.sort_by(|a, b| b.1.memory().cmp(&a.1.memory()));
@@ -329,6 +344,10 @@ fn build_gpu_text(
     )
 }
 
+// =============================================
+// 4. ПЛАТФОРМО-ЗАВИСИМЫЕ ФУНКЦИИ
+// =============================================
+
 #[cfg(target_os = "linux")]
 fn get_cpu_temps() -> Vec<f64> {
     use std::fs;
@@ -358,6 +377,11 @@ fn get_cpu_temps() -> Vec<f64> {
 fn get_cpu_temps() -> Vec<f64> {
     Vec::new() // fallback
 }
+
+// =============================================
+// 5. СТРУКТУРА ПРИЛОЖЕНИЯ
+// =============================================
+
 struct App{
     cpu_history: Vec<u64>,
     gpu_history: Vec<u64>,
@@ -425,7 +449,14 @@ impl App {
     }
 }
 
+// =============================================
+// 6. MAIN
+// =============================================
+
 fn main() -> io::Result<()> {
+
+    // ------------------- Инициализация -------------------
+
     let mut system = System::new_with_specifics(
         RefreshKind::nothing().with_cpu(CpuRefreshKind::everything()).with_memory(MemoryRefreshKind::everything()),
     );
@@ -439,6 +470,8 @@ fn main() -> io::Result<()> {
     system.refresh_cpu_all();
     system.refresh_memory();
 
+    // ------------------- Настройка терминала -------------------
+
     enable_raw_mode()?;
     let mut out = stdout();
     execute!(out, EnterAlternateScreen)?;
@@ -446,7 +479,10 @@ fn main() -> io::Result<()> {
     let backend = CrosstermBackend::new(out);
     let mut terminal = Terminal::new(backend)?;
 
+    // ======================== ГЛАВНЫЙ ЦИКЛ ========================
+
     loop {
+        // 1. Обновление данных системы
         system.refresh_cpu_all();
         system.refresh_memory();
         disks.refresh(true);
@@ -457,6 +493,7 @@ fn main() -> io::Result<()> {
             ProcessRefreshKind::everything(),
         );
 
+        // 2. Сбор данных для CPU
         let cpu_name = system.cpus()[0].brand().to_string();
         let cpu_usage = system.global_cpu_usage();
         let cpus = system.cpus();
@@ -476,7 +513,7 @@ fn main() -> io::Result<()> {
 
         let cpu_text = build_cpu_text(cpu_usage, cpus, &temps);
 
-        // ==================== GPU ====================
+        // 3. Сбор данных для GPU
         let mut gpu_usage_value = 0.0;
         let mut gpu_name = "No compatible device found".to_string();
         let mut gpu_memory_text = "Память GPU: Недоступно".to_string();
@@ -521,14 +558,13 @@ fn main() -> io::Result<()> {
             }
         }
 
-        // Обновляем историю
         app.push_gpu(gpu_usage_value);
         app.push_gpu_temp(gpu_temp_value);
         app.push_gpu_mem(gpu_mem_percent);
 
-        // Строим текст для основного GPU блока
         let gpu_text = build_gpu_text(&gpu_name, gpu_usage_value, &gpu_power_text);
 
+        // 4. Сбор данных для RAM, Disks, Network, Process
         let ram_text = build_ram_text(
             used_memory_gb,
             free_memory_gb,
@@ -573,6 +609,8 @@ fn main() -> io::Result<()> {
         );
 
         let process_rows = build_process_rows(&system);
+
+        // 5. Отрисовка интерфейса
 
         terminal.draw(|frame| {
             let area = frame.area();
@@ -788,6 +826,9 @@ fn main() -> io::Result<()> {
 
             frame.render_widget(processes_widget, bottom[1]);
         })?;
+
+        // 6. Обработка событий
+
         if event::poll(Duration::from_millis(0))? {
             if let Event::Key(key) = event::read()? {
                 if key.code == KeyCode::Char('q') {
@@ -798,6 +839,8 @@ fn main() -> io::Result<()> {
 
         std::thread::sleep(Duration::from_millis(200));
     }
+
+    // ------------------- Завершение -------------------
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
