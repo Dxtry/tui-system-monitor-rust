@@ -297,6 +297,38 @@ fn build_process_rows(system: &System) -> Vec<Row> {
         .collect()
 }
 
+fn build_gpu_power_text(power_usage: u32, max_power: u32) -> (String, String) {
+    if max_power == 0 {
+        return ("PWR: N/A".to_string(), String::new());
+    }
+
+    let power_w = power_usage as f64 / 1000.0;
+    let max_w = max_power as f64 / 1000.0;
+    let percent = (power_w / max_w) * 100.0;
+
+    let power_bar = draw_bar(percent, 40);
+
+    let text = format!("PWR {} {:4.0}W", power_bar, power_w);
+    (text, power_bar)
+}
+
+fn build_gpu_text(
+    gpu_name: &str,
+    gpu_usage: f64,
+    gpu_power_text: &str,
+) -> String {
+    if gpu_name == "No compatible device found" {
+        return "NO COMPATIBLE DEVICE FOUND".to_string();
+    }
+
+    let gpu_bar = draw_bar(gpu_usage, 40);
+
+    format!(
+        "GPU {} {:>5.1}%\n{}",
+        gpu_bar, gpu_usage, gpu_power_text
+    )
+}
+
 #[cfg(target_os = "linux")]
 fn get_cpu_temps() -> Vec<f64> {
     use std::fs;
@@ -442,24 +474,25 @@ fn main() -> io::Result<()> {
 
         let cpu_text = build_cpu_text(cpu_usage, cpus, &temps);
 
+        // ==================== GPU ====================
         let mut gpu_usage_value = 0.0;
         let mut gpu_name = "No compatible device found".to_string();
         let mut gpu_memory_text = "Память GPU: Недоступно".to_string();
-        let mut gpu_temp_text = "Температура: Недоступно".to_string();
-
         let mut gpu_temp_value = 0.0;
         let mut gpu_mem_percent = 0.0;
 
+        let mut gpu_power_text = "PWR: N/A".to_string();
+
         if let Some(nvml) = &nvml {
             if let Ok(device) = nvml.device_by_index(0) {
-                gpu_name = device
-                    .name()
-                    .unwrap_or_else(|_| "Unknown GPU".to_string());
+                gpu_name = device.name().unwrap_or_else(|_| "Unknown GPU".to_string());
 
+                // Utilization
                 if let Ok(util) = device.utilization_rates() {
                     gpu_usage_value = util.gpu as f64;
                 }
 
+                // Memory
                 if let Ok(mem) = device.memory_info() {
                     let used_mb = bytes_to_mb(mem.used);
                     let total_mb = bytes_to_mb(mem.total);
@@ -473,53 +506,26 @@ fn main() -> io::Result<()> {
                     );
                 }
 
+                // Temperature
                 if let Ok(temp) = device.temperature(TemperatureSensor::Gpu) {
                     gpu_temp_value = temp as f64;
-                    gpu_temp_text = format!("Температура: {}°C", temp);
+                }
+
+                // Power
+                if let (Ok(power), Ok(max_power)) = (device.power_usage(), device.enforced_power_limit()) {
+                    let (text, _) = build_gpu_power_text(power, max_power);
+                    gpu_power_text = text;
                 }
             }
         }
 
-        app.push_cpu(cpu_usage as f64);
+        // Обновляем историю
         app.push_gpu(gpu_usage_value);
         app.push_gpu_temp(gpu_temp_value);
         app.push_gpu_mem(gpu_mem_percent);
 
-        let gpu_bar = draw_bar(gpu_usage_value, 40);
-
-        let mut gpu_power_text = "PWR: N/A".to_string();
-        let mut gpu_power_bar = String::new();
-        if let Some(nvml) = &nvml {
-            if let Ok(device) = nvml.device_by_index(0) {
-
-                if let (Ok(power), Ok(max_power)) = (
-                    device.power_usage(),
-                    device.enforced_power_limit()
-                    ) {
-                    let power_w = power as f64 / 1000.0;
-                    let max_w = max_power as f64 / 1000.0;
-
-                    let percent = (power_w / max_w) * 100.0;
-
-                    gpu_power_bar = draw_bar(percent, 40);
-
-                    gpu_power_text = format! (
-                        "PWR {} {:4.0}W",
-                        gpu_power_bar,
-                        power_w
-                    );
-                }
-            }
-        }
-
-        let gpu_text = if gpu_name == "No compatible device found" {
-            "NO COMPATIBLE DEVICE FOUND".to_string()
-        } else {
-            format!(
-                "GPU {} {:>5.1}%\n{}",
-                gpu_bar, gpu_usage_value, gpu_power_text
-            )
-        };
+        // Строим текст для основного GPU блока
+        let gpu_text = build_gpu_text(&gpu_name, gpu_usage_value, &gpu_power_text);
 
         let ram_text = build_ram_text(
             used_memory_gb,
