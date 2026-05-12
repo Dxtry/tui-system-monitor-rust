@@ -462,6 +462,8 @@ fn main() -> io::Result<()> {
         let cpus = system.cpus();
         let temps = get_cpu_temps();
 
+        app.push_cpu(cpu_usage as f64);
+
         let total_memory = system.total_memory();
         let used_memory = system.used_memory();
         let free_memory = system.free_memory();
