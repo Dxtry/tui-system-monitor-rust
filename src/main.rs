@@ -126,6 +126,139 @@ fn build_temp_graph(history: &Vec<u64>, height: usize, width: usize) -> Vec<Stri
         .collect()
 }
 
+fn build_ram_text(
+    used_memory_gb: f64,
+    free_memory_gb: f64,
+    available_memory_gb: f64,
+    total_memory: u64,
+    used_memory: u64,
+    free_memory: u64,
+    available_memory: u64,
+) -> String {
+    let ram_percent = (used_memory as f64 / total_memory as f64) * 100.0;
+    let free_percent = (free_memory as f64 / total_memory as f64) * 100.0;
+    let avail_percent = (available_memory as f64 / total_memory as f64) * 100.0;
+
+    let ram_bar = draw_bar(ram_percent, 20);
+    let free_bar = draw_bar(free_percent, 20);
+    let avail_bar = draw_bar(avail_percent, 20);
+
+    format!(
+        "\n Used: {:.2} GB\n {} {:.1}%\n\n Free: {:.2} GB\n {} {:.1}%\n\n Available: {:.2} GB\n {} {:.1}%",
+        used_memory_gb,
+        ram_bar,
+        ram_percent,
+        free_memory_gb,
+        free_bar,
+        free_percent,
+        available_memory_gb,
+        avail_bar,
+        avail_percent,
+    )
+}
+
+fn build_disks_text(disks: &Disks) -> String {
+    let mut disks_text = String::new();
+
+    for disk in disks.list() {
+        let name = disk.mount_point().to_string_lossy().replace("\\", "");
+        let total_space = disk.total_space();
+        let available_space = disk.available_space();
+        let used_space = total_space - available_space;
+
+        let total_space_gb = bytes_to_gb(total_space);
+        let used_space_gb = bytes_to_gb(used_space);
+
+        let disk_percent = if total_space > 0 {
+            (used_space as f64 / total_space as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        let clean_name = name.trim_end_matches(':');
+        let disk_bar = draw_bar(disk_percent, 14);
+
+        disks_text.push_str(&format!(
+            "\n {}: {:.1}% {} \n ({:.2} / {:.2} GB)\n\n",
+            clean_name,
+            disk_percent,
+            disk_bar,
+            used_space_gb,
+            total_space_gb
+        ));
+    }
+
+    disks_text
+}
+
+fn build_network_text(
+    total_rx_mb: f64,
+    total_tx_mb: f64,
+    download_speed: f64,
+    upload_speed: f64,
+) -> String {
+    format!(
+        "\n Download ↓{:>6.2} MB/s\n Total: {:.2} MB\n\n Upload ↑{:>6.2} MB/s\n Total: {:.2} MB",
+        download_speed,
+        total_rx_mb,
+        upload_speed,
+        total_tx_mb
+    )
+}
+
+fn build_cpu_text(
+    cpu_usage: f32,
+    cpus: &[sysinfo::Cpu],
+    temps: &[f64],
+) -> String {
+    let cpu_bar = draw_bar(cpu_usage as f64, 30);
+
+    let mut cpu_text = format!(
+        "CPU {} {:>5.1}%\n\n",
+        cpu_bar, cpu_usage
+    );
+
+    let rows = 3;
+    let cols = (cpus.len() + rows - 1) / rows;
+
+    for r in 0..rows {
+        let mut line = String::new();
+
+        for c in 0..cols {
+            let index = c * rows + r;
+
+            if index < cpus.len() {
+                let cpu = &cpus[index];
+
+                let temp_text = if index < temps.len() {
+                    format!("{:.0}°C", temps[index])
+                } else {
+                    "N/A".to_string()
+                };
+
+                let core_text = format!(
+                    "C{:<1} {:>5.1}% {}",
+                    index,
+                    cpu.cpu_usage(),
+                    temp_text
+                );
+
+                line.push_str(&core_text);
+
+                if c + 1 < cols {
+                    line.push_str(" | ");
+                }
+            }
+        }
+
+        cpu_text.push_str(&line);
+        cpu_text.push('\n');
+    }
+
+    cpu_text
+}
+
+
 #[cfg(target_os = "linux")]
 fn get_cpu_temps() -> Vec<f64> {
     use std::fs;
@@ -269,50 +402,7 @@ fn main() -> io::Result<()> {
         let free_memory_gb = bytes_to_gb(free_memory);
         let available_memory_gb = bytes_to_gb(available_memory);
 
-        let cpu_bar = draw_bar(cpu_usage as f64, 30);
-        let mut cpu_text = format!(
-            "CPU {} {:>5.1}%\n\n",
-            cpu_bar, cpu_usage
-        );
-
-        let rows = 3;
-
-        // сколько будет колонок
-        let cols = (cpus.len() + rows - 1) / rows;
-
-        for r in 0..rows {
-            let mut line = String::new();
-
-            for c in 0..cols {
-                let index = c * rows + r;
-
-                if index < cpus.len() {
-                    let cpu = &cpus[index];
-
-                    let temp_text = if index < temps.len(){
-                        format!("{:.0}°C", temps[index])
-                    } else {
-                        "N/A".to_string()
-                    };
-
-                    let core_text = format!(
-                        "C{:<1} {:>5.1}% {}",
-                        index,
-                        cpu.cpu_usage(),
-                        temp_text
-                    );
-
-                    line.push_str(&core_text);
-
-                    if c + 1 < cols {
-                        line.push_str(" | "); // отступ между колонками
-                    }
-                }
-            }
-
-            cpu_text.push_str(&line);
-            cpu_text.push('\n');
-        }
+        let cpu_text = build_cpu_text(cpu_usage, cpus, &temps);
 
         let mut gpu_usage_value = 0.0;
         let mut gpu_name = "No compatible device found".to_string();
@@ -393,57 +483,17 @@ fn main() -> io::Result<()> {
             )
         };
 
-        let ram_percent = (used_memory as f64 / total_memory as f64) * 100.0;
-        let ram_bar = draw_bar(ram_percent, 20);
-
-        let free_percent = (free_memory as f64 / total_memory as f64) * 100.0;
-        let avail_percent = (available_memory as f64 / total_memory as f64) * 100.0;
-
-        let free_bar = draw_bar(free_percent, 20);
-        let avail_bar = draw_bar(avail_percent, 20);
-
-        let ram_text = format!(
-            "\n Used: {:.2} GB\n {} {:.1}%\n\n Free: {:.2} GB\n {} {:.1}%\n\n Available: {:.2} GB\n {} {:.1}%",
+        let ram_text = build_ram_text(
             used_memory_gb,
-            ram_bar,
-            ram_percent,
             free_memory_gb,
-            free_bar,
-            free_percent,
             available_memory_gb,
-            avail_bar,
-            avail_percent,
+            total_memory,
+            used_memory,
+            free_memory,
+            available_memory,
         );
 
-        let mut disks_text = String::new();
-
-        for disk in disks.list() {
-            let name = disk.mount_point().to_string_lossy().replace("\\", "");
-            let total_space = disk.total_space();
-            let available_space = disk.available_space();
-            let used_space = total_space - available_space;
-
-            let total_space_gb = bytes_to_gb(total_space);
-            let used_space_gb = bytes_to_gb(used_space);
-
-            let disk_percent = if total_space > 0 {
-                (used_space as f64 / total_space as f64) * 100.0
-            } else {
-                0.0
-            };
-
-            let clean_name = name.trim_end_matches(':');
-            let disk_bar = draw_bar(disk_percent, 14);
-
-            disks_text.push_str(&format!(
-                "\n {}: {:.1}% {} \n ({:.2} / {:.2} GB)\n\n",
-                clean_name,
-                disk_percent,
-                disk_bar,
-                used_space_gb,
-                total_space_gb
-            ));
-        }
+        let disks_text = build_disks_text(&disks);
 
         let mut rx_bytes = 0u64;
         let mut tx_bytes = 0u64;
@@ -461,24 +511,19 @@ fn main() -> io::Result<()> {
         let tx_mb = bytes_to_mb(tx_bytes);
         let total_rx_mb = bytes_to_mb(total_rx_bytes);
         let total_tx_mb = bytes_to_mb(total_tx_bytes);
-
         // 200 мс = 0.2 секунды, потому что у тебя poll стоит на 200 ms
         let interval_sec = 0.2;
-
         let download_speed = rx_mb / interval_sec;
         let upload_speed = tx_mb / interval_sec;
-
         // 1 MB/s считаем как 100% активности для графика
         let net_activity = ((download_speed + upload_speed) / 1.0) * 100.0;
-
         app.push_net(net_activity);
 
-        let network_text = format!(
-            "\n Download ↓{:>6.2} MB/s\n Total: {:.2} MB\n\n Upload ↑{:>6.2} MB/s\n Total: {:.2} MB",
-            download_speed,
+        let network_text = build_network_text(
             total_rx_mb,
+            total_tx_mb,
+            download_speed,
             upload_speed,
-            total_tx_mb
         );
 
         let mut processes: Vec<_> = system.processes().iter().collect();
